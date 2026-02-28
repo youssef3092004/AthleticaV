@@ -1,0 +1,367 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TrainerClientStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum WorkoutLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum MealTime {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum ProgressMetricType {
+  WEIGHT
+  BODY_FAT
+  MUSCLE
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+enum PayoutStatus {
+  REQUESTED
+  PAID
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  phone        String   @unique
+  profileImage String   @default("https://cdn.pixabay.com/photo/2020/07/01/12/58/icon-5359553_640.png")
+  email        String?  @unique
+  password     String
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  userRoles              UserRole[]
+  trainerProfile         TrainerProfile?
+  trainerClientsAsCoach  TrainerClient[]   @relation("TrainerClientsTrainer")
+  trainerClientsAsUser   TrainerClient[]   @relation("TrainerClientsClient")
+  workoutTemplates       WorkoutTemplate[]
+  workoutsAsClient       Workout[]         @relation("WorkoutClient")
+  workoutsAsTrainer      Workout[]         @relation("WorkoutTrainer")
+  mealTemplates          MealTemplate[]
+  mealPlansAsClient      MealPlan[]        @relation("MealPlanClient")
+  mealPlansAsTrainer     MealPlan[]        @relation("MealPlanTrainer")
+  progressMetrics        ProgressMetric[]
+  conversationsAsTrainer Conversation[]    @relation("ConversationTrainer")
+  conversationsAsClient  Conversation[]    @relation("ConversationClient")
+  sentMessages           Message[]         @relation("MessageSender")
+  transactionsAsClient   Transaction[]     @relation("TransactionClient")
+  transactionsAsTrainer  Transaction[]     @relation("TransactionTrainer")
+  trainerWallet          TrainerWallet?
+  payouts                Payout[]
+  activityLogs           ActivityLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id  String @id @default(uuid()) @db.Uuid
+  key String @unique
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model TrainerProfile {
+  id              String  @id @default(uuid()) @db.Uuid
+  trainerId       String  @unique @map("trainer_id") @db.Uuid
+  bio             String?
+  certifications  String?
+  yearsExperience Int?    @map("years_experience")
+  rating          Float?  @default(0)
+  isVerified      Boolean @default(false) @map("is_verified")
+
+  trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@map("trainer_profiles")
+}
+
+model TrainerClient {
+  id        String              @id @default(uuid()) @db.Uuid
+  trainerId String              @map("trainer_id") @db.Uuid
+  clientId  String              @map("client_id") @db.Uuid
+  status    TrainerClientStatus @default(ACTIVE)
+  startedAt DateTime            @default(now()) @map("started_at")
+
+  trainer User @relation("TrainerClientsTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  client  User @relation("TrainerClientsClient", fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([trainerId, clientId])
+  @@map("trainer_clients")
+}
+
+model WorkoutTemplate {
+  id        String       @id @default(uuid()) @db.Uuid
+  trainerId String       @map("trainer_id") @db.Uuid
+  title     String
+  level     WorkoutLevel @default(BEGINNER)
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  trainer  User      @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  workouts Workout[]
+
+  @@map("workout_templates")
+}
+
+model Workout {
+  id                String   @id @default(uuid()) @db.Uuid
+  workoutTemplateId String?  @map("workout_template_id") @db.Uuid
+  clientId          String   @map("client_id") @db.Uuid
+  trainerId         String   @map("trainer_id") @db.Uuid
+  startDate         DateTime @map("start_date") @db.Date
+  endDate           DateTime @map("end_date") @db.Date
+
+  workoutTemplate WorkoutTemplate? @relation(fields: [workoutTemplateId], references: [id], onDelete: SetNull)
+  client          User             @relation("WorkoutClient", fields: [clientId], references: [id], onDelete: Cascade)
+  trainer         User             @relation("WorkoutTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  items           WorkoutItem[]
+
+  @@map("workouts")
+}
+
+model WorkoutItem {
+  id           String  @id @default(uuid()) @db.Uuid
+  workoutId    String  @map("workout_id") @db.Uuid
+  exerciseName String  @map("exercise_name")
+  sets         Int
+  reps         Int
+  restSeconds  Int     @map("rest_seconds")
+  videoUrl     String? @map("video_url")
+
+  workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@map("workout_items")
+}
+
+model Food {
+  id       String @id @default(uuid()) @db.Uuid
+  name     String
+  calories Float
+  protein  Float
+  carbs    Float
+  fat      Float
+
+  portions      FoodPortion[]
+  mealPlanItems MealPlanItem[]
+
+  @@map("foods")
+}
+
+model FoodPortion {
+  id         String @id @default(uuid()) @db.Uuid
+  foodId     String @map("food_id") @db.Uuid
+  label      String
+  multiplier Float
+
+  food          Food           @relation(fields: [foodId], references: [id], onDelete: Cascade)
+  mealPlanItems MealPlanItem[]
+
+  @@map("food_portions")
+}
+
+model MealTemplate {
+  id          String  @id @default(uuid()) @db.Uuid
+  trainerId   String  @map("trainer_id") @db.Uuid
+  title       String
+  description String?
+
+  trainer   User       @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  mealPlans MealPlan[]
+
+  @@map("meal_templates")
+}
+
+model MealPlan {
+  id             String   @id @default(uuid()) @db.Uuid
+  mealTemplateId String?  @map("meal_template_id") @db.Uuid
+  clientId       String   @map("client_id") @db.Uuid
+  trainerId      String   @map("trainer_id") @db.Uuid
+  startDate      DateTime @map("start_date") @db.Date
+  endDate        DateTime @map("end_date") @db.Date
+
+  mealTemplate MealTemplate?  @relation(fields: [mealTemplateId], references: [id], onDelete: SetNull)
+  client       User           @relation("MealPlanClient", fields: [clientId], references: [id], onDelete: Cascade)
+  trainer      User           @relation("MealPlanTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  items        MealPlanItem[]
+
+  @@map("meal_plans")
+}
+
+model MealPlanItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  mealPlanId String   @map("meal_plan_id") @db.Uuid
+  foodId     String   @map("food_id") @db.Uuid
+  portionId  String   @map("portion_id") @db.Uuid
+  mealTime   MealTime @map("meal_time")
+
+  mealPlan MealPlan    @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  food     Food        @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  portion  FoodPortion @relation(fields: [portionId], references: [id], onDelete: Restrict)
+
+  @@map("meal_plan_items")
+}
+
+model ProgressMetric {
+  id         String             @id @default(uuid()) @db.Uuid
+  userId     String             @map("user_id") @db.Uuid
+  metric     ProgressMetricType
+  value      Float
+  recordedAt DateTime           @map("recorded_at") @db.Date
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("progress_metrics")
+}
+
+model Conversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  trainerId String   @map("trainer_id") @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  trainer  User      @relation("ConversationTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  client   User      @relation("ConversationClient", fields: [clientId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([trainerId, clientId])
+  @@map("conversations")
+}
+
+model Message {
+  id             String      @id @default(uuid()) @db.Uuid
+  conversationId String      @map("conversation_id") @db.Uuid
+  senderId       String      @map("sender_id") @db.Uuid
+  body           String
+  type           MessageType @default(TEXT)
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Transaction {
+  id            String            @id @default(uuid()) @db.Uuid
+  clientId      String            @map("client_id") @db.Uuid
+  trainerId     String            @map("trainer_id") @db.Uuid
+  grossAmount   Float             @map("gross_amount")
+  platformFee   Float             @map("platform_fee")
+  trainerAmount Float             @map("trainer_amount")
+  currency      String
+  status        TransactionStatus @default(PENDING)
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  client  User @relation("TransactionClient", fields: [clientId], references: [id], onDelete: Cascade)
+  trainer User @relation("TransactionTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@map("transactions")
+}
+
+model TrainerWallet {
+  trainerId String @id @map("trainer_id") @db.Uuid
+  balance   Float  @default(0)
+
+  trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@map("trainer_wallets")
+}
+
+model Payout {
+  id          String       @id @default(uuid()) @db.Uuid
+  trainerId   String       @map("trainer_id") @db.Uuid
+  amount      Float
+  status      PayoutStatus @default(REQUESTED)
+  requestedAt DateTime     @default(now()) @map("requested_at")
+  paidAt      DateTime?    @map("paid_at")
+
+  trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@map("payouts")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("activity_logs")
+}
+
+model BlacklistedToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  createdAt DateTime @default(now())
+  expiredAt DateTime
+}
