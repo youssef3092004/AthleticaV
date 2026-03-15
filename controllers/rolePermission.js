@@ -2,6 +2,23 @@ import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
 import { pagination } from "../utils/pagination.js";
 
+const parseRolePermissionCompositeId = (id) => {
+  if (!id || typeof id !== "string") return null;
+
+  const [roleId, permissionId] = id.split(":");
+  if (!roleId || !permissionId) return null;
+
+  return {
+    roleId: roleId.trim(),
+    permissionId: permissionId.trim(),
+  };
+};
+
+const normalizeRolePermissionSort = (sort) => {
+  const allowedSortFields = new Set(["roleId", "permissionId"]);
+  return allowedSortFields.has(sort) ? sort : "roleId";
+};
+
 export const createRolePermission = async (req, res, next) => {
   try {
     if (req.user.roleName !== "DEVELOPER") {
@@ -51,8 +68,21 @@ export const getRolePermissionById = async (req, res, next) => {
     if (!id) {
       return next(new AppError("Role-Permission ID is required", 400));
     }
+
+    const compositeId = parseRolePermissionCompositeId(id);
+    if (!compositeId) {
+      return next(
+        new AppError(
+          "Role-Permission ID must be in format roleId:permissionId",
+          400,
+        ),
+      );
+    }
+
     const rolePermission = await prisma.rolePermission.findUnique({
-      where: { id },
+      where: {
+        roleId_permissionId: compositeId,
+      },
     });
     if (!rolePermission || rolePermission === 0) {
       return next(new AppError("Role-Permission not found", 404));
@@ -77,12 +107,13 @@ export const getAllRolePermissions = async (req, res, next) => {
       );
     }
     const { page, limit, skip, sort, order } = pagination(req);
+    const normalizedSort = normalizeRolePermissionSort(sort);
 
     const [rolePermissions, total] = await prisma.$transaction([
       prisma.rolePermission.findMany({
         skip,
         take: limit,
-        orderBy: { [sort]: order },
+        orderBy: { [normalizedSort]: order },
       }),
       prisma.rolePermission.count(),
     ]);
@@ -101,7 +132,7 @@ export const getAllRolePermissions = async (req, res, next) => {
         limit,
         total,
         totalPages,
-        sort,
+        sort: normalizedSort,
         order,
       },
       source: "database",
@@ -146,8 +177,21 @@ export const deleteRolePermissionById = async (req, res, next) => {
     if (!id) {
       return next(new AppError("Role-Permission ID is required", 400));
     }
+
+    const compositeId = parseRolePermissionCompositeId(id);
+    if (!compositeId) {
+      return next(
+        new AppError(
+          "Role-Permission ID must be in format roleId:permissionId",
+          400,
+        ),
+      );
+    }
+
     const rolePermission = await prisma.rolePermission.delete({
-      where: { id },
+      where: {
+        roleId_permissionId: compositeId,
+      },
     });
     if (!rolePermission || rolePermission === 0) {
       return next(new AppError("Role-Permission not found", 404));
@@ -176,11 +220,24 @@ export const updateRolePermissionById = async (req, res, next) => {
     if (!id) {
       return next(new AppError("Role-Permission ID is required", 400));
     }
+
+    const compositeId = parseRolePermissionCompositeId(id);
+    if (!compositeId) {
+      return next(
+        new AppError(
+          "Role-Permission ID must be in format roleId:permissionId",
+          400,
+        ),
+      );
+    }
+
     if (!roleId || !permissionId) {
       return next(new AppError("Role ID and Permission ID are required", 400));
     }
     const updatedRolePermission = await prisma.rolePermission.update({
-      where: { id },
+      where: {
+        roleId_permissionId: compositeId,
+      },
       data: { roleId, permissionId },
     });
     if (!updatedRolePermission) {
@@ -210,13 +267,14 @@ export const getPermissionsByRoleId = async (req, res, next) => {
       return next(new AppError("Role ID is required", 400));
     }
     const { page, limit, skip, sort, order } = pagination(req);
+    const normalizedSort = normalizeRolePermissionSort(sort);
     const [rolePermissions, total] = await prisma.$transaction([
       prisma.rolePermission.findMany({
         where: { roleId },
         include: { permission: true },
         skip,
         take: limit,
-        orderBy: { [sort]: order },
+        orderBy: { [normalizedSort]: order },
       }),
       prisma.rolePermission.count({
         where: { roleId },
@@ -235,7 +293,7 @@ export const getPermissionsByRoleId = async (req, res, next) => {
         limit,
         total,
         totalPages: Math.ceil(total / limit),
-        sort,
+        sort: normalizedSort,
         order,
       },
       source: "database",

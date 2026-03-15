@@ -8,14 +8,40 @@ import {
   updateWorkoutByIdPatch,
 } from "../controllers/workout.js";
 import { verifyToken } from "../middleware/auth.js";
+import { checkPermission } from "../middleware/checkPermission.js";
 
 const router = Router();
 
-router.post("/", verifyToken, createWorkout);
-router.get("/", verifyToken, getAllWorkouts);
-router.get("/:id", verifyToken, getWorkoutById);
-router.patch("/:id", verifyToken, updateWorkoutByIdPatch);
-router.delete("/:id", verifyToken, deleteWorkoutById);
-router.delete("/", verifyToken, deleteAllWorkouts);
+router.post(
+  "/",
+  verifyToken,
+  checkPermission("CREATE-WORKOUTS"),
+  createWorkout,
+);
+router.get("/", verifyToken, checkPermission("VIEW-WORKOUTS"), getAllWorkouts);
+router.get(
+  "/:id",
+  verifyToken,
+  checkPermission("VIEW-WORKOUTS"),
+  getWorkoutById,
+);
+router.patch(
+  "/:id",
+  verifyToken,
+  checkPermission("UPDATE-WORKOUTS"),
+  updateWorkoutByIdPatch,
+);
+router.delete(
+  "/:id",
+  verifyToken,
+  checkPermission("DELETE-WORKOUTS"),
+  deleteWorkoutById,
+);
+router.delete(
+  "/",
+  verifyToken,
+  checkPermission("DELETE-WORKOUTS"),
+  deleteAllWorkouts,
+);
 
 export default router;

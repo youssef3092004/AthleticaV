@@ -2,16 +2,22 @@ import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
 import { pagination } from "../utils/pagination.js";
 
+const isDeveloper = (user) => {
+  const roleName = user?.roleName;
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  return roleName === "DEVELOPER" || roles.includes("DEVELOPER");
+};
+
 export const createRole = async (req, res, next) => {
   try {
-    if (req.user.roleName !== "DEVELOPER") {
-      return next(
-        new AppError("Forbidden: Only DEVELOPER can create roles", 403),
-      );
-    }
-    const { name, description } = req.body;
-    if (!name || !description) {
-      return next(new AppError("Name and description are required", 400));
+    // if (req.user.roleName !== "DEVELOPER") {
+    //   return next(
+    //     new AppError("Forbidden: Only DEVELOPER can create roles", 403),
+    //   );
+    // }
+    const { name } = req.body;
+    if (!name) {
+      return next(new AppError("Name is required", 400));
     }
 
     const existingRole = await prisma.role.findUnique({
@@ -23,7 +29,6 @@ export const createRole = async (req, res, next) => {
     const newRole = await prisma.role.create({
       data: {
         name,
-        description,
       },
     });
     res.status(201).json({
@@ -37,7 +42,7 @@ export const createRole = async (req, res, next) => {
 
 export const getRoles = async (req, res, next) => {
   try {
-    if (req.user.roleName !== "DEVELOPER") {
+    if (!isDeveloper(req.user)) {
       return next(new AppError("Forbidden: Only DEVELOPER can get roles", 403));
     }
     const { page, limit, skip, sort, order } = pagination(req);
@@ -73,7 +78,7 @@ export const getRoles = async (req, res, next) => {
 
 export const getRoleById = async (req, res, next) => {
   try {
-    if (req.user.roleName !== "DEVELOPER") {
+    if (!isDeveloper(req.user)) {
       return next(
         new AppError("Forbidden: Only DEVELOPER can get roles by ID", 403),
       );
@@ -99,7 +104,7 @@ export const getRoleById = async (req, res, next) => {
 
 export const deleteRoleById = async (req, res, next) => {
   try {
-    if (req.user.roleName !== "DEVELOPER") {
+    if (!isDeveloper(req.user)) {
       return next(
         new AppError("Forbidden: Only DEVELOPER can delete roles", 403),
       );
@@ -108,10 +113,19 @@ export const deleteRoleById = async (req, res, next) => {
     if (!id) {
       return next(new AppError("Role ID is required", 400));
     }
-    const allUsersWithRole = await prisma.user.updateMany({
+    const userRoleLinks = await prisma.userRole.count({
       where: { roleId: id },
-      data: { roleId: "5b780541-22ba-4b2c-a100-c677f41eaf9c" },
     });
+
+    if (userRoleLinks > 0) {
+      return next(
+        new AppError(
+          "Cannot delete role while it is assigned to users. Remove role assignments first.",
+          409,
+        ),
+      );
+    }
+
     const role = await prisma.role.delete({
       where: { id },
     });
@@ -121,7 +135,6 @@ export const deleteRoleById = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: "Role deleted successfully",
-      reassignedUsersCount: allUsersWithRole.count,
     });
   } catch (error) {
     next(error);
@@ -130,7 +143,7 @@ export const deleteRoleById = async (req, res, next) => {
 
 export const updateRole = async (req, res, next) => {
   try {
-    if (req.user.roleName !== "DEVELOPER") {
+    if (!isDeveloper(req.user)) {
       return next(
         new AppError("Forbidden: Only DEVELOPER can update roles", 403),
       );
@@ -139,20 +152,14 @@ export const updateRole = async (req, res, next) => {
     if (!id) {
       return next(new AppError("Role ID is required", 400));
     }
-    const { name, description } = req.body;
-    if (!name && !description) {
-      return next(
-        new AppError(
-          "At least one field (name or description) is required to update",
-          400,
-        ),
-      );
+    const { name } = req.body;
+    if (!name) {
+      return next(new AppError("Name is required to update role", 400));
     }
     const updatedRole = await prisma.role.update({
       where: { id },
       data: {
         name,
-        description,
       },
     });
     res.status(200).json({

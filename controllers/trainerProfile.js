@@ -5,6 +5,27 @@ import { buildResourceTags, invalidateCacheByTags } from "../utils/cache.js";
 
 const getUserId = (req) => req.user?.id || req.user?.userId || req.user?.sub;
 
+const USER_PUBLIC_SELECT = {
+  id: true,
+  name: true,
+  phone: true,
+  profileImage: true,
+  email: true,
+  isVerified: true,
+  createdAt: true,
+  updatedAt: true,
+  userRoles: {
+    select: {
+      role: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+};
+
 const canManageAnyTrainerProfile = (user) => {
   const roleName = user?.roleName;
   const roles = Array.isArray(user?.roles) ? user.roles : [];
@@ -98,9 +119,16 @@ export const createTrainerProfile = async (req, res, next) => {
 
     const profile = await prisma.trainerProfile.create({
       data: payload,
+      include: {
+        trainer: {
+          select: USER_PUBLIC_SELECT,
+        },
+      },
     });
 
-    invalidateCacheByTags(buildResourceTags("trainer_profiles", profile.id));
+    invalidateCacheByTags(
+      buildResourceTags("trainer_profiles", profile.trainerId),
+    );
 
     return res.status(201).json({
       status: "success",
@@ -112,15 +140,20 @@ export const createTrainerProfile = async (req, res, next) => {
   }
 };
 
-export const getTrainerProfileById = async (req, res, next) => {
+export const getTrainerProfileByUserId = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    if (!id) {
-      return next(new AppError("Trainer profile ID is required", 400));
+    const { userId } = req.params;
+    if (!userId) {
+      return next(new AppError("Trainer userId is required", 400));
     }
 
     const profile = await prisma.trainerProfile.findUnique({
-      where: { id },
+      where: { trainerId: userId },
+      include: {
+        trainer: {
+          select: USER_PUBLIC_SELECT,
+        },
+      },
     });
 
     if (!profile) {
@@ -129,7 +162,19 @@ export const getTrainerProfileById = async (req, res, next) => {
 
     return res.status(200).json({
       status: "success",
-      data: profile,
+      data: {
+        userId,
+        user: profile.trainer,
+        profile: {
+          id: profile.id,
+          trainerId: profile.trainerId,
+          bio: profile.bio,
+          certifications: profile.certifications,
+          yearsExperience: profile.yearsExperience,
+          rating: profile.rating,
+          isVerified: profile.isVerified,
+        },
+      },
       source: "database",
     });
   } catch (error) {
@@ -153,14 +198,32 @@ export const getAllTrainerProfiles = async (req, res, next) => {
         orderBy: {
           [sort]: order,
         },
+        include: {
+          trainer: {
+            select: USER_PUBLIC_SELECT,
+          },
+        },
       }),
     ]);
+
+    const formattedProfiles = profiles.map((profile) => ({
+      user: profile.trainer,
+      profile: {
+        id: profile.id,
+        trainerId: profile.trainerId,
+        bio: profile.bio,
+        certifications: profile.certifications,
+        yearsExperience: profile.yearsExperience,
+        rating: profile.rating,
+        isVerified: profile.isVerified,
+      },
+    }));
 
     const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
 
     return res.status(200).json({
       status: "success",
-      data: profiles,
+      data: formattedProfiles,
       meta: {
         page,
         limit,
@@ -178,13 +241,13 @@ export const getAllTrainerProfiles = async (req, res, next) => {
 
 export const updateTrainerProfileByIdPatch = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    if (!id) {
-      return next(new AppError("Trainer profile ID is required", 400));
+    const { userId } = req.params;
+    if (!userId) {
+      return next(new AppError("Trainer userId is required", 400));
     }
 
     const existingProfile = await prisma.trainerProfile.findUnique({
-      where: { id },
+      where: { trainerId: userId },
     });
 
     if (!existingProfile) {
@@ -272,11 +335,16 @@ export const updateTrainerProfileByIdPatch = async (req, res, next) => {
     }
 
     const updatedProfile = await prisma.trainerProfile.update({
-      where: { id },
+      where: { trainerId: userId },
       data: updateData,
+      include: {
+        trainer: {
+          select: USER_PUBLIC_SELECT,
+        },
+      },
     });
 
-    invalidateCacheByTags(buildResourceTags("trainer_profiles", id));
+    invalidateCacheByTags(buildResourceTags("trainer_profiles", userId));
 
     return res.status(200).json({
       status: "success",
@@ -290,13 +358,13 @@ export const updateTrainerProfileByIdPatch = async (req, res, next) => {
 
 export const deleteTrainerProfileById = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    if (!id) {
-      return next(new AppError("Trainer profile ID is required", 400));
+    const { userId } = req.params;
+    if (!userId) {
+      return next(new AppError("Trainer userId is required", 400));
     }
 
     const existingProfile = await prisma.trainerProfile.findUnique({
-      where: { id },
+      where: { trainerId: userId },
     });
 
     if (!existingProfile) {
@@ -313,10 +381,10 @@ export const deleteTrainerProfileById = async (req, res, next) => {
     }
 
     await prisma.trainerProfile.delete({
-      where: { id },
+      where: { trainerId: userId },
     });
 
-    invalidateCacheByTags(buildResourceTags("trainer_profiles", id));
+    invalidateCacheByTags(buildResourceTags("trainer_profiles", userId));
 
     return res.status(200).json({
       status: "success",

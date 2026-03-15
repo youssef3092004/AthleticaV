@@ -4,50 +4,69 @@ import { AppError } from "../utils/appError.js";
 const getUserId = (req) =>
   req.user?.id || req.user?.userId || req.user?.sub || null;
 
-const parseWhere = (input) => {
-  if (!input) return null;
-  if (typeof input === "object") return input;
-
-  try {
-    return JSON.parse(input);
-  } catch {
-    return null;
+const getUserRoles = (req) => {
+  const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
+  if (req.user?.roleName && !roles.includes(req.user.roleName)) {
+    roles.push(req.user.roleName);
   }
+  return roles;
 };
 
-const pickOwnershipWhere = (req, resource) => {
-  if (resource.idField && req.params.id) {
-    return { [resource.idField]: req.params.id };
-  }
-
-  const where = req.body?.where || parseWhere(req.query?.where);
-  if (where && typeof where === "object") {
-    return where;
-  }
-
-  return null;
+const pickTargetId = (req, paramKey) => {
+  return (
+    req.params?.[paramKey] ||
+    req.body?.[paramKey] ||
+    req.query?.[paramKey] ||
+    null
+  );
 };
 
-export const checkOwnership = (resource) => {
+export const checkOwnership = (config = {}) => {
+  const {
+    model,
+    idField = "id",
+    ownerFields = [],
+    paramKey = "id",
+    allowRoles = ["OWNER", "DEVELOPER", "ADMIN"],
+  } = config;
+
   return async (req, res, next) => {
     try {
-      const ownerFields = resource.ownerFields || [];
-      if (ownerFields.length === 0) return next();
-      if (req.user?.isAdmin) return next();
-
       const userId = getUserId(req);
       if (!userId) {
         return next(new AppError("Unauthorized: missing user context", 401));
       }
 
-      const where = pickOwnershipWhere(req, resource);
-      if (!where) {
+      const userRoles = getUserRoles(req);
+      if (allowRoles.some((role) => userRoles.includes(role))) {
+        return next();
+      }
+
+      const targetId = pickTargetId(req, paramKey);
+      if (!targetId) {
         return next(
-          new AppError("Missing resource identifier for ownership check", 400),
+          new AppError(`Missing '${paramKey}' for ownership check`, 400),
         );
       }
 
-      const record = await prisma[resource.model].findFirst({ where });
+      // Direct ownership check (e.g. userId in route equals requester id)
+      if (!model) {
+        if (String(targetId) !== String(userId)) {
+          return next(
+            new AppError("Forbidden: ownership validation failed", 403),
+          );
+        }
+        return next();
+      }
+
+      if (ownerFields.length === 0) {
+        return next();
+      }
+
+      const record = await prisma[model].findUnique({
+        where: { [idField]: targetId },
+      });
+
       if (!record) {
         return next(new AppError("Resource not found", 404));
       }

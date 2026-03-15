@@ -11,6 +11,7 @@ import { AppError } from "../utils/appError.js";
 import jwt from "jsonwebtoken";
 
 const DEFAULT_ROLE = "CLIENT";
+const TRAINER_ROLE_ID = "1da36adf-31f4-4cf8-bea7-a8e65c9aff0d";
 
 const signToken = (payload) => {
   const secret = process.env.JWT_SECRET;
@@ -31,7 +32,19 @@ const sanitizeUser = (user) => {
 
 export const register = async (req, res, next) => {
   try {
-    const { name, phone, email, password, profileImage, roleNames } = req.body;
+    const {
+      name,
+      phone,
+      email,
+      password,
+      profileImage,
+      roleNames,
+      roleId,
+      roleIds,
+      bio,
+      certifications,
+      yearsExperience,
+    } = req.body;
 
     if (!name || !phone || !password) {
       return next(new AppError("Name, phone and password are required", 400));
@@ -48,7 +61,7 @@ export const register = async (req, res, next) => {
     });
 
     if (existingUser) {
-      return next(new AppError("User already exists", 409));
+      return next(new AppError("User already exists with email or phone", 409));
     }
 
     if (!isValidName(name)) {
@@ -70,21 +83,112 @@ export const register = async (req, res, next) => {
       Number(process.env.SALT_ROUNDS || 10),
     );
 
-    const requestedRoles =
+    const requestedRoleIds = [
+      ...(Array.isArray(roleIds) ? roleIds : []),
+      ...(roleId ? [roleId] : []),
+    ]
+      .map((idItem) => String(idItem).trim())
+      .filter(Boolean);
+
+    const requestedRoleNames =
       Array.isArray(roleNames) && roleNames.length > 0
         ? roleNames.map((nameItem) => String(nameItem).trim().toUpperCase())
-        : [DEFAULT_ROLE];
+        : [];
 
-    const roles = await prisma.role.findMany({
-      where: { name: { in: requestedRoles } },
+    const hasExplicitRoles =
+      requestedRoleIds.length > 0 || requestedRoleNames.length > 0;
+
+    if (!hasExplicitRoles) {
+      requestedRoleNames.push(DEFAULT_ROLE);
+    }
+
+    let roles = await prisma.role.findMany({
+      where: {
+        OR: [
+          ...(requestedRoleIds.length > 0
+            ? [{ id: { in: requestedRoleIds } }]
+            : []),
+          ...(requestedRoleNames.length > 0
+            ? [{ name: { in: requestedRoleNames } }]
+            : []),
+        ],
+      },
       select: { id: true, name: true },
     });
 
-    if (roles.length !== requestedRoles.length) {
-      const found = new Set(roles.map((role) => role.name));
-      const missing = requestedRoles.filter((roleName) => !found.has(roleName));
-      return next(new AppError(`Unknown role(s): ${missing.join(", ")}`, 400));
+    if (!hasExplicitRoles && requestedRoleNames.includes(DEFAULT_ROLE)) {
+      const hasDefaultRole = roles.some((role) => role.name === DEFAULT_ROLE);
+      if (!hasDefaultRole) {
+        await prisma.role.upsert({
+          where: { name: DEFAULT_ROLE },
+          update: {},
+          create: { name: DEFAULT_ROLE },
+        });
+
+        roles = await prisma.role.findMany({
+          where: {
+            OR: [{ name: { in: requestedRoleNames } }],
+          },
+          select: { id: true, name: true },
+        });
+      }
     }
+
+    const foundRoleIds = new Set(roles.map((role) => role.id));
+    const foundRoleNames = new Set(roles.map((role) => role.name));
+
+    const missingRoleIds = requestedRoleIds.filter(
+      (idItem) => !foundRoleIds.has(idItem),
+    );
+    const missingRoleNames = requestedRoleNames.filter(
+      (roleNameItem) => !foundRoleNames.has(roleNameItem),
+    );
+
+    if (missingRoleIds.length > 0 || missingRoleNames.length > 0) {
+      const details = [
+        ...(missingRoleIds.length > 0
+          ? [`roleId(s): ${missingRoleIds.join(", ")}`]
+          : []),
+        ...(missingRoleNames.length > 0
+          ? [`role(s): ${missingRoleNames.join(", ")}`]
+          : []),
+      ];
+
+      return next(new AppError(`Unknown ${details.join(" | ")}`, 400));
+    }
+
+    const shouldCreateTrainerProfile = roles.some(
+      (role) => role.id === TRAINER_ROLE_ID,
+    );
+
+    const parsedYearsExperience =
+      yearsExperience === undefined ||
+      yearsExperience === null ||
+      String(yearsExperience).trim() === ""
+        ? 0
+        : Number(yearsExperience);
+
+    if (Number.isNaN(parsedYearsExperience) || parsedYearsExperience < 0) {
+      return next(
+        new AppError("yearsExperience must be a valid number >= 0", 400),
+      );
+    }
+
+    const trainerProfileData = {
+      bio:
+        bio === undefined || bio === null || String(bio).trim() === ""
+          ? "Pending"
+          : String(bio).trim(),
+      certifications:
+        certifications === undefined ||
+        certifications === null ||
+        String(certifications).trim() === ""
+          ? "Pending"
+          : String(certifications).trim(),
+      yearsExperience: parsedYearsExperience,
+      rating: 0,
+      isVerified: false,
+    };
 
     const user = await prisma.user.create({
       data: {
@@ -96,8 +200,16 @@ export const register = async (req, res, next) => {
         userRoles: {
           create: roles.map((role) => ({ roleId: role.id })),
         },
+        ...(shouldCreateTrainerProfile
+          ? {
+              trainerProfile: {
+                create: trainerProfileData,
+              },
+            }
+          : {}),
       },
       include: {
+        trainerProfile: true,
         userRoles: {
           select: {
             role: {
@@ -147,7 +259,9 @@ export const login = async (req, res, next) => {
                 rolePermissions: {
                   select: {
                     permission: {
-                      select: { key: true },
+                      select: {
+                        key: true,
+                      },
                     },
                   },
                 },
@@ -233,14 +347,25 @@ export const logout = async (req, res, next) => {
   }
 };
 
-export const forgetPassword = async (req, res, next) => {
+export const resetPassword = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const { currentPassword, newPassword } = req.body;
-    const userId = req.user.id;
-    if (userId !== id) {
-      return next(new AppError("Unauthorized", 403));
+    const {oldPassword, newPassword } = req.body;
+    const previousPassword = oldPassword;
+    const id = req.user?.id || req.user?.userId || req.user?.sub;
+
+    if (!id) {
+      return next(new AppError("Unauthorized", 401));
     }
+
+    if (!previousPassword || !newPassword) {
+      return next(
+        new AppError(
+          "oldPassword and newPassword are required",
+          400,
+        ),
+      );
+    }
+
     const user = await prisma.user.findUnique({
       where: { id },
     });
@@ -248,7 +373,7 @@ export const forgetPassword = async (req, res, next) => {
       return next(new AppError("User not found", 404));
     }
     const isPasswordValid = await bcrypt.compare(
-      currentPassword,
+      previousPassword,
       user.password,
     );
     if (!isPasswordValid) {
