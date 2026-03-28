@@ -5,7 +5,10 @@ import {
   deleteTrainerClientById,
   getAllTrainerClients,
   getTrainerClientById,
-  updateTrainerClientByIdPatch,
+  updateStatusToActive,
+  updateStatusToEnded,
+  updateStatusToPaused,
+  getAllTrainerClientsByTrainerId,
 } from "../controllers/trainerClient.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
@@ -19,34 +22,42 @@ router.post(
   createTrainerClient,
 );
 router.get(
-  "/",
+  "/getAll",
   verifyToken,
   checkPermission("VIEW-TRAINER-CLIENTS"),
   getAllTrainerClients,
 );
 router.get(
-  "/:id",
+  "/getAllByTrainerId/:trainerId",
+  verifyToken,
+  checkPermission("VIEW-TRAINER-CLIENTS"),
+  getAllTrainerClientsByTrainerId,
+);
+router.get(
+  "/getById/:id",
   verifyToken,
   checkPermission("VIEW-TRAINER-CLIENTS"),
   getTrainerClientById,
 );
 router.patch(
-  "/:id",
+  "/updateStatusToPaused/:id",
   verifyToken,
   checkPermission("UPDATE-TRAINER-CLIENTS"),
-  updateTrainerClientByIdPatch,
+  updateStatusToPaused,
 );
-router.delete(
-  "/:id",
+router.patch(
+  "/updateStatusToEnded/:id",
   verifyToken,
-  checkPermission("DELETE-TRAINER-CLIENTS"),
-  deleteTrainerClientById,
+  checkPermission("UPDATE-TRAINER-CLIENTS"),
+  updateStatusToEnded,
 );
-router.delete(
-  "/",
+router.patch(
+  "/updateStatusToActive/:id",
   verifyToken,
-  checkPermission("DELETE-TRAINER-CLIENTS"),
-  deleteAllTrainerClients,
+  checkPermission("UPDATE-TRAINER-CLIENTS"),
+  updateStatusToActive,
 );
+router.delete("/deleteById/:id", verifyToken, deleteTrainerClientById);
+router.delete("/deleteAll", verifyToken, deleteAllTrainerClients);
 
 export default router;

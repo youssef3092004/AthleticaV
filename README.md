@@ -68,7 +68,9 @@ scripts/
 ## Environment Variables
 
 ```env
+# Use one of these (DATABASE_URL is recommended)
 DATABASE_URL=
+PRISMA_URL=
 JWT_SECRET=
 JWT_EXPIRES_IN=7d
 SALT_ROUNDS=10
@@ -174,109 +176,124 @@ Base URL: `/api/v1`
 
 ### Auth — `/auth`
 
-| Method | Path             | Auth | Description                          |
-| ------ | ---------------- | ---- | ------------------------------------ |
-| POST   | `/register`      | ❌   | Register user (default role: CLIENT) |
-| POST   | `/login`         | ❌   | Login, returns JWT                   |
-| POST   | `/logout`        | ✅   | Blacklists current token             |
-| PATCH  | `/resetPassword` | ✅   | Change own password                  |
+| Method | Path             | Auth | Permission | Description                 |
+| ------ | ---------------- | ---- | ---------- | --------------------------- |
+| POST   | `/register`      | ❌   | N/A        | Register a new user         |
+| POST   | `/login`         | ❌   | N/A        | Login and return JWT        |
+| POST   | `/logout`        | ✅   | N/A        | Logout and blacklist token  |
+| PATCH  | `/resetPassword` | ✅   | N/A        | Reset current user password |
 
 ### Users — `/users`
 
-| Method | Path                  | Permission                 | Description     |
-| ------ | --------------------- | -------------------------- | --------------- |
-| GET    | `/me`                 | `VIEW-ME`                  | Get own profile |
-| GET    | `/getAll`             | `VIEW-USERS`               | List all users  |
-| GET    | `/getById/:userId`    | `VIEW-USERS`               | Get user by ID  |
-| PATCH  | `/update/:userId`     | `UPDATE-USERS` + ownership | Update user     |
-| DELETE | `/deleteById/:userId` | `DELETE-USERS` + ownership | Delete user     |
+| Method | Path                  | Auth | Permission                 | Description              |
+| ------ | --------------------- | ---- | -------------------------- | ------------------------ |
+| GET    | `/me`                 | ✅   | `VIEW-ME`                  | Get current user profile |
+| GET    | `/getAll`             | ✅   | `VIEW-USERS`               | List users               |
+| GET    | `/getById/:userId`    | ✅   | `VIEW-USERS`               | Get user by ID           |
+| PATCH  | `/update/:userId`     | ✅   | `UPDATE-USERS` + ownership | Update user              |
+| DELETE | `/deleteById/:userId` | ✅   | `DELETE-USERS` + ownership | Delete user              |
 
 ### Roles — `/roles`
 
-| Method | Path              | Permission     | Description |
-| ------ | ----------------- | -------------- | ----------- |
-| POST   | `/create`         | `CREATE-ROLES` | Create role |
-| GET    | `/getAll`         | `VIEW-ROLES`   | List roles  |
-| GET    | `/getById/:id`    | `VIEW-ROLES`   | Get role    |
-| PUT    | `/update/:id`     | `UPDATE-ROLES` | Update role |
-| DELETE | `/deleteById/:id` | `DELETE-ROLES` | Delete role |
+| Method | Path              | Auth | Permission     | Description    |
+| ------ | ----------------- | ---- | -------------- | -------------- |
+| POST   | `/create`         | ✅   | `CREATE-ROLES` | Create role    |
+| GET    | `/getAll`         | ✅   | `VIEW-ROLES`   | List roles     |
+| GET    | `/getById/:id`    | ✅   | `VIEW-ROLES`   | Get role by ID |
+| PUT    | `/update/:id`     | ✅   | `UPDATE-ROLES` | Update role    |
+| DELETE | `/deleteById/:id` | ✅   | `DELETE-ROLES` | Delete role    |
 
 ### Permissions — `/permissions`
 
-| Method | Path              | Permission           | Description            |
-| ------ | ----------------- | -------------------- | ---------------------- |
-| POST   | `/create`         | `CREATE-PERMISSIONS` | Create permission      |
-| GET    | `/getAll`         | `VIEW-PERMISSIONS`   | List permissions       |
-| GET    | `/getById/:id`    | `VIEW-PERMISSIONS`   | Get permission         |
-| PUT    | `/updateById/:id` | `UPDATE-PERMISSIONS` | Update permission      |
-| DELETE | `/deleteById/:id` | `DELETE-PERMISSIONS` | Delete permission      |
-| DELETE | `/deleteAll`      | `DELETE-PERMISSIONS` | Delete all permissions |
+| Method | Path              | Auth | Permission           | Description            |
+| ------ | ----------------- | ---- | -------------------- | ---------------------- |
+| POST   | `/create`         | ✅   | `CREATE-PERMISSIONS` | Create permission      |
+| GET    | `/getAll`         | ✅   | `VIEW-PERMISSIONS`   | List permissions       |
+| GET    | `/getById/:id`    | ✅   | `VIEW-PERMISSIONS`   | Get permission by ID   |
+| PUT    | `/updateById/:id` | ✅   | `UPDATE-PERMISSIONS` | Update permission      |
+| DELETE | `/deleteById/:id` | ✅   | `DELETE-PERMISSIONS` | Delete permission      |
+| DELETE | `/deleteAll`      | ✅   | `DELETE-PERMISSIONS` | Delete all permissions |
 
-### Role-Permissions — `/role-permissions`
+### Role Permissions — `/role-permissions`
 
-| Method | Path              | Permission                | Description               |
-| ------ | ----------------- | ------------------------- | ------------------------- |
-| POST   | `/create`         | `CREATE-ROLE-PERMISSIONS` | Assign permission to role |
-| GET    | `/getAll`         | `VIEW-ROLE-PERMISSIONS`   | List assignments          |
-| GET    | `/getById/:id`    | `VIEW-ROLE-PERMISSIONS`   | Get by ID                 |
-| PUT    | `/update/:id`     | `UPDATE-ROLE-PERMISSIONS` | Update assignment         |
-| DELETE | `/deleteById/:id` | `DELETE-ROLE-PERMISSIONS` | Remove assignment         |
-| DELETE | `/deleteAll`      | `DELETE-ROLE-PERMISSIONS` | Remove all                |
+| Method | Path              | Auth | Permission                | Description                            |
+| ------ | ----------------- | ---- | ------------------------- | -------------------------------------- |
+| POST   | `/create`         | ✅   | `CREATE-ROLE-PERMISSIONS` | Create role-permission assignment      |
+| GET    | `/getAll`         | ✅   | `VIEW-ROLE-PERMISSIONS`   | List role-permission assignments       |
+| GET    | `/getById/:id`    | ✅   | `VIEW-ROLE-PERMISSIONS`   | Get role-permission assignment by ID   |
+| PUT    | `/update/:id`     | ✅   | `UPDATE-ROLE-PERMISSIONS` | Update role-permission assignment      |
+| DELETE | `/deleteById/:id` | ✅   | `DELETE-ROLE-PERMISSIONS` | Delete role-permission assignment      |
+| DELETE | `/deleteAll`      | ✅   | `DELETE-ROLE-PERMISSIONS` | Delete all role-permission assignments |
 
-### User-Permissions — `/user-permissions`
+### User Permissions — `/user-permissions`
 
-| Method | Path   | Permission           | Description               |
-| ------ | ------ | -------------------- | ------------------------- |
-| POST   | `/`    | `CREATE-PERMISSIONS` | Assign permission to user |
-| GET    | `/`    | `VIEW-PERMISSIONS`   | List user permissions     |
-| GET    | `/:id` | `VIEW-PERMISSIONS`   | Get by ID                 |
-| PUT    | `/:id` | `UPDATE-PERMISSIONS` | Update                    |
-| DELETE | `/:id` | `DELETE-PERMISSIONS` | Remove                    |
-| DELETE | `/`    | `DELETE-PERMISSIONS` | Remove all                |
+| Method | Path   | Auth | Permission           | Description                            |
+| ------ | ------ | ---- | -------------------- | -------------------------------------- |
+| POST   | `/`    | ✅   | `CREATE-PERMISSIONS` | Create user-permission assignment      |
+| GET    | `/`    | ✅   | `VIEW-PERMISSIONS`   | List user-permission assignments       |
+| GET    | `/:id` | ✅   | `VIEW-PERMISSIONS`   | Get user-permission assignment by ID   |
+| PUT    | `/:id` | ✅   | `UPDATE-PERMISSIONS` | Update user-permission assignment      |
+| DELETE | `/:id` | ✅   | `DELETE-PERMISSIONS` | Delete user-permission assignment      |
+| DELETE | `/`    | ✅   | `DELETE-PERMISSIONS` | Delete all user-permission assignments |
 
 ### Trainer Profiles — `/trainer-profiles`
 
-| Method | Path               | Permission                | Description            |
-| ------ | ------------------ | ------------------------- | ---------------------- |
-| POST   | `/create`          | `CREATE-TRAINER-PROFILES` | Create profile         |
-| GET    | `/getAll`          | `VIEW-TRAINER-PROFILES`   | List profiles          |
-| GET    | `/getById/:userId` | `VIEW-TRAINER-PROFILES`   | Get by trainer user ID |
-| PATCH  | `/update/:userId`  | `UPDATE-TRAINER-PROFILES` | Update profile         |
-| DELETE | `/delete/:userId`  | `DELETE-TRAINER-PROFILES` | Delete profile         |
-| DELETE | `/deleteAll`       | `DELETE-TRAINER-PROFILES` | Delete all             |
+| Method | Path               | Auth | Permission                | Description                    |
+| ------ | ------------------ | ---- | ------------------------- | ------------------------------ |
+| POST   | `/create`          | ✅   | `CREATE-TRAINER-PROFILES` | Create trainer profile         |
+| GET    | `/getAll`          | ✅   | `VIEW-TRAINER-PROFILES`   | List trainer profiles          |
+| GET    | `/getById/:userId` | ✅   | `VIEW-TRAINER-PROFILES`   | Get trainer profile by user ID |
+| PATCH  | `/update/:userId`  | ✅   | `UPDATE-TRAINER-PROFILES` | Update trainer profile         |
+| DELETE | `/delete/:userId`  | ✅   | `DELETE-TRAINER-PROFILES` | Delete trainer profile         |
+| DELETE | `/deleteAll`       | ✅   | `DELETE-TRAINER-PROFILES` | Delete all trainer profiles    |
 
 ### Trainer Clients — `/trainer-clients`
 
-| Method | Path      | Permission               | Description            |
-| ------ | --------- | ------------------------ | ---------------------- |
-| POST   | `/create` | `CREATE-TRAINER-CLIENTS` | Link trainer to client |
-| GET    | `/`       | `VIEW-TRAINER-CLIENTS`   | List relationships     |
-| GET    | `/:id`    | `VIEW-TRAINER-CLIENTS`   | Get by ID              |
-| PATCH  | `/:id`    | `UPDATE-TRAINER-CLIENTS` | Update status          |
-| DELETE | `/:id`    | `DELETE-TRAINER-CLIENTS` | Remove relationship    |
-| DELETE | `/`       | `DELETE-TRAINER-CLIENTS` | Remove all             |
+| Method | Path                            | Auth | Permission               | Description                         |
+| ------ | ------------------------------- | ---- | ------------------------ | ----------------------------------- |
+| POST   | `/create`                       | ✅   | `CREATE-TRAINER-CLIENTS` | Create trainer-client relation      |
+| GET    | `/getAll`                       | ✅   | `VIEW-TRAINER-CLIENTS`   | List trainer-client relations       |
+| GET    | `/getAllByTrainerId/:trainerId` | ✅   | `VIEW-TRAINER-CLIENTS`   | List relations by trainer ID        |
+| GET    | `/getById/:id`                  | ✅   | `VIEW-TRAINER-CLIENTS`   | Get trainer-client relation by ID   |
+| PATCH  | `/updateStatusToPaused/:id`     | ✅   | `UPDATE-TRAINER-CLIENTS` | Set relation status to `PAUSED`     |
+| PATCH  | `/updateStatusToEnded/:id`      | ✅   | `UPDATE-TRAINER-CLIENTS` | Set relation status to `ENDED`      |
+| PATCH  | `/updateStatusToActive/:id`     | ✅   | `UPDATE-TRAINER-CLIENTS` | Set relation status to `ACTIVE`     |
+| DELETE | `/deleteById/:id`               | ✅   | verifyToken only         | Delete trainer-client relation      |
+| DELETE | `/deleteAll`                    | ✅   | verifyToken only         | Delete all trainer-client relations |
 
 ### Workout Templates — `/workout-templates`
 
-| Method | Path   | Permission                 | Description     |
-| ------ | ------ | -------------------------- | --------------- |
-| POST   | `/`    | `CREATE-WORKOUT-TEMPLATES` | Create template |
-| GET    | `/`    | `VIEW-WORKOUT-TEMPLATES`   | List templates  |
-| GET    | `/:id` | `VIEW-WORKOUT-TEMPLATES`   | Get by ID       |
-| PATCH  | `/:id` | `UPDATE-WORKOUT-TEMPLATES` | Update template |
-| DELETE | `/:id` | `DELETE-WORKOUT-TEMPLATES` | Delete template |
-| DELETE | `/`    | `DELETE-WORKOUT-TEMPLATES` | Delete all      |
+| Method | Path                 | Auth | Permission                 | Description                       |
+| ------ | -------------------- | ---- | -------------------------- | --------------------------------- |
+| POST   | `/create`            | ✅   | `CREATE-WORKOUT-TEMPLATES` | Create workout template           |
+| GET    | `/getAll/:trainerId` | ✅   | `VIEW-WORKOUT-TEMPLATES`   | List workout templates by trainer |
+| GET    | `/getById/:id`       | ✅   | `VIEW-WORKOUT-TEMPLATES`   | Get workout template by ID        |
+| PATCH  | `/update/:id`        | ✅   | `UPDATE-WORKOUT-TEMPLATES` | Update workout template           |
+| DELETE | `/delete/:id`        | ✅   | `DELETE-WORKOUT-TEMPLATES` | Delete workout template           |
+| DELETE | `/deleteAll`         | ✅   | `DELETE-WORKOUT-TEMPLATES` | Delete all workout templates      |
 
 ### Workouts — `/workouts`
 
-| Method | Path   | Permission        | Description              |
-| ------ | ------ | ----------------- | ------------------------ |
-| POST   | `/`    | `CREATE-WORKOUTS` | Assign workout to client |
-| GET    | `/`    | `VIEW-WORKOUTS`   | List workouts            |
-| GET    | `/:id` | `VIEW-WORKOUTS`   | Get with workout items   |
-| PATCH  | `/:id` | `UPDATE-WORKOUTS` | Update workout           |
-| DELETE | `/:id` | `DELETE-WORKOUTS` | Delete workout           |
-| DELETE | `/`    | `DELETE-WORKOUTS` | Delete all               |
+| Method | Path           | Auth | Permission        | Description         |
+| ------ | -------------- | ---- | ----------------- | ------------------- |
+| POST   | `/create`      | ✅   | `CREATE-WORKOUTS` | Create workout      |
+| GET    | `/getAll`      | ✅   | `VIEW-WORKOUTS`   | List workouts       |
+| GET    | `/getById/:id` | ✅   | `VIEW-WORKOUTS`   | Get workout by ID   |
+| PATCH  | `/update/:id`  | ✅   | `UPDATE-WORKOUTS` | Update workout      |
+| DELETE | `/delete/:id`  | ✅   | `DELETE-WORKOUTS` | Delete workout      |
+| DELETE | `/deleteAll`   | ✅   | `DELETE-WORKOUTS` | Delete all workouts |
+
+### Workout Items — `/workout-items`
+
+| Method | Path                            | Auth | Permission        | Description                      |
+| ------ | ------------------------------- | ---- | ----------------- | -------------------------------- |
+| POST   | `/create`                       | ✅   | `CREATE-WORKOUTS` | Create workout item              |
+| GET    | `/getAll`                       | ✅   | `VIEW-WORKOUTS`   | List workout items               |
+| GET    | `/getAllByWorkoutId/:workoutId` | ✅   | `VIEW-WORKOUTS`   | List workout items by workout ID |
+| GET    | `/getById/:id`                  | ✅   | `VIEW-WORKOUTS`   | Get workout item by ID           |
+| PATCH  | `/update/:id`                   | ✅   | `UPDATE-WORKOUTS` | Update workout item              |
+| DELETE | `/delete/:id`                   | ✅   | `DELETE-WORKOUTS` | Delete workout item              |
+| DELETE | `/deleteAll`                    | ✅   | `DELETE-WORKOUTS` | Delete all workout items         |
 
 ---
 

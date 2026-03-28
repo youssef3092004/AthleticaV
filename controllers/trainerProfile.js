@@ -142,7 +142,7 @@ export const createTrainerProfile = async (req, res, next) => {
 
 export const getTrainerProfileByUserId = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const { userId } = req.params || req.user.id || req.user.userId || {};
     if (!userId) {
       return next(new AppError("Trainer userId is required", 400));
     }
@@ -184,6 +184,14 @@ export const getTrainerProfileByUserId = async (req, res, next) => {
 
 export const getAllTrainerProfiles = async (req, res, next) => {
   try {
+    if (req.user.roleName !== "ADMIN" && req.user.roleName !== "DEVELOPER") {
+      return next(
+        new AppError(
+          "Forbidden: Only ADMIN and DEVELOPER can view all trainer profiles",
+          403,
+        ),
+      );
+    }
     const { page, limit, skip, sort, order } = pagination(req, {
       defaultSort: "id",
       defaultOrder: "asc",
@@ -358,6 +366,14 @@ export const updateTrainerProfileByIdPatch = async (req, res, next) => {
 
 export const deleteTrainerProfileById = async (req, res, next) => {
   try {
+    if (req.user.roleName !== "ADMIN" && req.user.roleName !== "DEVELOPER") {
+      return next(
+        new AppError(
+          "Forbidden: Only ADMIN and DEVELOPER can view all trainer profiles",
+          403,
+        ),
+      );
+    }
     const { userId } = req.params;
     if (!userId) {
       return next(new AppError("Trainer userId is required", 400));
@@ -398,6 +414,14 @@ export const deleteTrainerProfileById = async (req, res, next) => {
 
 export const deleteAllTrainerProfiles = async (req, res, next) => {
   try {
+    if (req.user.roleName !== "ADMIN" && req.user.roleName !== "DEVELOPER") {
+      return next(
+        new AppError(
+          "Forbidden: Only ADMIN and DEVELOPER can view all trainer profiles",
+          403,
+        ),
+      );
+    }
     if (!canManageAnyTrainerProfile(req.user)) {
       return next(
         new AppError(

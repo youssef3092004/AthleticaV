@@ -179,8 +179,58 @@ export const getAllTrainerClients = async (req, res, next) => {
     return next(error);
   }
 };
+export const getAllTrainerClientsByTrainerId = async (req, res, next) => {
+  try {
+    const { trainerId } = req.params;
+    if (!trainerId) {
+      return next(new AppError("Trainer ID is required", 400));
+    }
+    const { page, limit, skip, sort, order } = pagination(req, {
+      defaultSort: "startedAt",
+      defaultOrder: "desc",
+      defaultLimit: 20,
+    });
 
-export const updateTrainerClientByIdPatch = async (req, res, next) => {
+    const requesterId = getUserId(req);
+    const where = canManageAnyTrainerClient(req.user)
+      ? { trainerId }
+      : {
+          AND: [{ trainerId: requesterId }, { clientId: requesterId }],
+        };
+
+    const [total, relations] = await prisma.$transaction([
+      prisma.trainerClient.count({ where }),
+      prisma.trainerClient.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          [sort]: order,
+        },
+      }),
+    ]);
+
+    const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+
+    return res.status(200).json({
+      status: "success",
+      data: relations,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+        sort,
+        order,
+      },
+      source: "database",
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const updateTrainerClientStatus = async (req, res, next, nextStatus) => {
   try {
     const { id } = req.params;
     if (!id) {
@@ -199,70 +249,21 @@ export const updateTrainerClientByIdPatch = async (req, res, next) => {
       return next(new AppError("Forbidden", 403));
     }
 
-    const allowedFields = ["trainerId", "clientId", "status", "startedAt"];
-    const updateData = { ...req.body };
-    const payloadKeys = Object.keys(updateData);
-
-    if (payloadKeys.length === 0) {
-      return next(new AppError("No fields provided for update", 400));
+    if (!ALLOWED_STATUS.includes(nextStatus)) {
+      return next(new AppError("Invalid status value", 400));
     }
 
-    for (const key of payloadKeys) {
-      if (!allowedFields.includes(key)) {
-        return next(new AppError(`Field '${key}' cannot be updated`, 400));
-      }
-    }
-
-    const nextTrainerId = updateData.trainerId ?? existing.trainerId;
-    const nextClientId = updateData.clientId ?? existing.clientId;
-
-    if (!ensureOwnOrPrivileged(req, nextTrainerId, nextClientId)) {
-      return next(new AppError("Forbidden", 403));
-    }
-
-    if (updateData.trainerId !== undefined) {
-      await ensureUserExists(updateData.trainerId, "Trainer user");
-    }
-
-    if (updateData.clientId !== undefined) {
-      await ensureUserExists(updateData.clientId, "Client user");
-    }
-
-    if (updateData.status !== undefined) {
-      const normalizedStatus = normalizeStatus(updateData.status);
-      if (!ALLOWED_STATUS.includes(normalizedStatus)) {
-        return next(new AppError("Invalid status value", 400));
-      }
-      updateData.status = normalizedStatus;
-    }
-
-    if (updateData.startedAt !== undefined) {
-      updateData.startedAt = new Date(updateData.startedAt);
-    }
-
-    if (
-      String(nextTrainerId) !== String(existing.trainerId) ||
-      String(nextClientId) !== String(existing.clientId)
-    ) {
-      const duplicated = await prisma.trainerClient.findUnique({
-        where: {
-          trainerId_clientId: {
-            trainerId: nextTrainerId,
-            clientId: nextClientId,
-          },
-        },
+    if (existing.status === nextStatus) {
+      return res.status(200).json({
+        status: "success",
+        data: existing,
+        source: "database",
       });
-
-      if (duplicated) {
-        return next(
-          new AppError("Trainer-client relation already exists", 409),
-        );
-      }
     }
 
     const updated = await prisma.trainerClient.update({
       where: { id },
-      data: updateData,
+      data: { status: nextStatus },
     });
 
     invalidateCacheByTags(buildResourceTags("trainer_clients", id));
@@ -275,6 +276,18 @@ export const updateTrainerClientByIdPatch = async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
+};
+
+export const updateStatusToPaused = async (req, res, next) => {
+  return updateTrainerClientStatus(req, res, next, "PAUSED");
+};
+
+export const updateStatusToEnded = async (req, res, next) => {
+  return updateTrainerClientStatus(req, res, next, "ENDED");
+};
+
+export const updateStatusToActive = async (req, res, next) => {
+  return updateTrainerClientStatus(req, res, next, "ACTIVE");
 };
 
 export const deleteTrainerClientById = async (req, res, next) => {
