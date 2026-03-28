@@ -25,6 +25,8 @@ import trainerProfileRoutes from "./routes/trainerProfile.js";
 import trainerClientRoutes from "./routes/trainerClient.js";
 import workoutTemplateRoutes from "./routes/workoutTemplate.js";
 import workoutRoutes from "./routes/workout.js";
+import workoutItemRoutes from "./routes/workoutItem.js";
+import exerciseRoutes from "./routes/exercise.js";
 import permissionRoutes from "./routes/permission.js";
 import rolePermissionRoutes from "./routes/rolePermission.js";
 
@@ -38,6 +40,8 @@ app.use("/api/v1/trainer-profiles", trainerProfileRoutes);
 app.use("/api/v1/trainer-clients", trainerClientRoutes);
 app.use("/api/v1/workout-templates", workoutTemplateRoutes);
 app.use("/api/v1/workouts", workoutRoutes);
+app.use("/api/v1/workout-items", workoutItemRoutes);
+app.use("/api/v1/exercises", exerciseRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);

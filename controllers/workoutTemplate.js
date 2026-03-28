@@ -50,15 +50,26 @@ const ensureOwnOrPrivileged = (req, trainerId) => {
 
 const buildListWhere = (req) => {
   const requesterId = getUserId(req);
-  const queryTrainerId = req.query.trainerId;
+  const trainerId = req.params.trainerId || req.query.trainerId;
   const queryLevel = normalizeLevel(req.query.level);
+
+  if (!trainerId) {
+    throw new AppError("trainerId is required", 400);
+  }
+
+  if (!canManageAnyWorkoutTemplate(req.user)) {
+    throw new AppError(
+      "Forbidden: trainerId query parameter is required for non-privileged users",
+      403,
+    );
+  }
 
   const where = {};
 
   if (!canManageAnyWorkoutTemplate(req.user)) {
     where.trainerId = requesterId;
-  } else if (queryTrainerId) {
-    where.trainerId = String(queryTrainerId);
+  } else if (trainerId) {
+    where.trainerId = String(trainerId);
   }
 
   if (queryLevel) {
@@ -236,6 +247,9 @@ export const getAllWorkoutTemplates = async (req, res, next) => {
       source: "database",
     });
   } catch (error) {
+    if (error.code === "P2023") {
+      return next(new AppError("Invalid query parameter value", 400));
+    }
     return next(error);
   }
 };

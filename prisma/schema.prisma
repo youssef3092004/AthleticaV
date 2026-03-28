@@ -62,8 +62,8 @@ model User {
   email        String?  @unique
   password     String
   isVerified   Boolean  @default(false)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   userRoles              UserRole[]
   trainerProfile         TrainerProfile?
@@ -84,8 +84,7 @@ model User {
   trainerWallet          TrainerWallet?
   payouts                Payout[]
   activityLogs           ActivityLog[]
-
-  @@map("users")
+  exercises              Exercise[]
 }
 
 model Role {
@@ -94,8 +93,6 @@ model Role {
 
   userRoles       UserRole[]
   rolePermissions RolePermission[]
-
-  @@map("roles")
 }
 
 model Permission {
@@ -103,101 +100,122 @@ model Permission {
   key String @unique
 
   rolePermissions RolePermission[]
-
-  @@map("permissions")
 }
 
 model UserRole {
-  userId String @map("user_id") @db.Uuid
-  roleId String @map("role_id") @db.Uuid
+  userId String @db.Uuid
+  roleId String @db.Uuid
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
-  @@map("user_roles")
 }
 
 model RolePermission {
-  roleId       String @map("role_id") @db.Uuid
-  permissionId String @map("permission_id") @db.Uuid
+  roleId       String @db.Uuid
+  permissionId String @db.Uuid
 
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
-  @@map("role_permissions")
 }
 
 model TrainerProfile {
   id              String  @id @default(uuid()) @db.Uuid
-  trainerId       String  @unique @map("trainer_id") @db.Uuid
+  trainerId       String  @unique @db.Uuid
   bio             String?
   certifications  String?
-  yearsExperience Int?    @map("years_experience")
+  yearsExperience Int?
   rating          Float?  @default(0)
-  isVerified      Boolean @default(false) @map("is_verified")
+  isVerified      Boolean @default(false)
 
   trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-
-  @@map("trainer_profiles")
 }
 
 model TrainerClient {
   id        String              @id @default(uuid()) @db.Uuid
-  trainerId String              @map("trainer_id") @db.Uuid
-  clientId  String              @map("client_id") @db.Uuid
+  trainerId String              @db.Uuid
+  clientId  String              @db.Uuid
   status    TrainerClientStatus @default(ACTIVE)
-  startedAt DateTime            @default(now()) @map("started_at")
+  startedAt DateTime            @default(now())
 
   trainer User @relation("TrainerClientsTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
   client  User @relation("TrainerClientsClient", fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([trainerId, clientId])
-  @@map("trainer_clients")
+}
+
+enum Category {
+  CHEST
+  BACK
+  LEGS
+  ARMS
+  SHOULDERS
+  CORE
+  CARDIO
+}
+
+model Exercise {
+  id        String @id @default(uuid()) @db.Uuid
+  trainerId String @db.Uuid
+
+  name         String
+  category     Category
+  videoUrl     String
+  instructions String?
+  createdAt    DateTime @default(now())
+
+  trainer      User          @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  workoutItems WorkoutItem[]
 }
 
 model WorkoutTemplate {
   id        String       @id @default(uuid()) @db.Uuid
-  trainerId String       @map("trainer_id") @db.Uuid
+  trainerId String       @db.Uuid
   title     String
   level     WorkoutLevel @default(BEGINNER)
-  createdAt DateTime     @default(now()) @map("created_at")
+  createdAt DateTime     @default(now())
 
   trainer  User      @relation(fields: [trainerId], references: [id], onDelete: Cascade)
   workouts Workout[]
-
-  @@map("workout_templates")
 }
 
 model Workout {
   id                String   @id @default(uuid()) @db.Uuid
-  workoutTemplateId String?  @map("workout_template_id") @db.Uuid
-  clientId          String   @map("client_id") @db.Uuid
-  trainerId         String   @map("trainer_id") @db.Uuid
-  startDate         DateTime @map("start_date") @db.Date
-  endDate           DateTime @map("end_date") @db.Date
+  workoutTemplateId String?  @db.Uuid
+  clientId          String   @db.Uuid
+  trainerId         String   @db.Uuid
+  startDate         DateTime @db.Date
+  endDate           DateTime @db.Date
 
   workoutTemplate WorkoutTemplate? @relation(fields: [workoutTemplateId], references: [id], onDelete: SetNull)
   client          User             @relation("WorkoutClient", fields: [clientId], references: [id], onDelete: Cascade)
   trainer         User             @relation("WorkoutTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
   items           WorkoutItem[]
-
-  @@map("workouts")
 }
 
 model WorkoutItem {
-  id           String  @id @default(uuid()) @db.Uuid
-  workoutId    String  @map("workout_id") @db.Uuid
-  exerciseName String  @map("exercise_name")
-  sets         Int
-  reps         Int
-  restSeconds  Int     @map("rest_seconds")
-  videoUrl     String? @map("video_url")
+  id         String @id @default(uuid()) @db.Uuid
+  workoutId  String @db.Uuid
+  exerciseId String @db.Uuid
 
-  workout Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  sets        Int
+  reps        Int
+  restSeconds Int
 
-  @@map("workout_items")
+  order Int // Order of the exercise in the workout 0 1 2 3 
+
+  notes String?
+  tempo String?
+  rir   Int?
+  rpe    Float?
+
+  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+
+  @@index([workoutId])
 }
 
 model Food {
@@ -210,153 +228,130 @@ model Food {
 
   portions      FoodPortion[]
   mealPlanItems MealPlanItem[]
-
-  @@map("foods")
 }
 
 model FoodPortion {
   id         String @id @default(uuid()) @db.Uuid
-  foodId     String @map("food_id") @db.Uuid
+  foodId     String @db.Uuid
   label      String
   multiplier Float
 
   food          Food           @relation(fields: [foodId], references: [id], onDelete: Cascade)
   mealPlanItems MealPlanItem[]
-
-  @@map("food_portions")
 }
 
 model MealTemplate {
   id          String  @id @default(uuid()) @db.Uuid
-  trainerId   String  @map("trainer_id") @db.Uuid
+  trainerId   String  @db.Uuid
   title       String
   description String?
 
   trainer   User       @relation(fields: [trainerId], references: [id], onDelete: Cascade)
   mealPlans MealPlan[]
-
-  @@map("meal_templates")
 }
 
 model MealPlan {
   id             String   @id @default(uuid()) @db.Uuid
-  mealTemplateId String?  @map("meal_template_id") @db.Uuid
-  clientId       String   @map("client_id") @db.Uuid
-  trainerId      String   @map("trainer_id") @db.Uuid
-  startDate      DateTime @map("start_date") @db.Date
-  endDate        DateTime @map("end_date") @db.Date
+  mealTemplateId String?  @db.Uuid
+  clientId       String   @db.Uuid
+  trainerId      String   @db.Uuid
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
 
   mealTemplate MealTemplate?  @relation(fields: [mealTemplateId], references: [id], onDelete: SetNull)
   client       User           @relation("MealPlanClient", fields: [clientId], references: [id], onDelete: Cascade)
   trainer      User           @relation("MealPlanTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
   items        MealPlanItem[]
-
-  @@map("meal_plans")
 }
 
 model MealPlanItem {
   id         String   @id @default(uuid()) @db.Uuid
-  mealPlanId String   @map("meal_plan_id") @db.Uuid
-  foodId     String   @map("food_id") @db.Uuid
-  portionId  String   @map("portion_id") @db.Uuid
-  mealTime   MealTime @map("meal_time")
+  mealPlanId String   @db.Uuid
+  foodId     String   @db.Uuid
+  portionId  String   @db.Uuid
+  mealTime   MealTime
 
   mealPlan MealPlan    @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
   food     Food        @relation(fields: [foodId], references: [id], onDelete: Restrict)
   portion  FoodPortion @relation(fields: [portionId], references: [id], onDelete: Restrict)
-
-  @@map("meal_plan_items")
 }
 
 model ProgressMetric {
   id         String             @id @default(uuid()) @db.Uuid
-  userId     String             @map("user_id") @db.Uuid
+  userId     String             @db.Uuid
   metric     ProgressMetricType
   value      Float
-  recordedAt DateTime           @map("recorded_at") @db.Date
+  recordedAt DateTime           @db.Date
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("progress_metrics")
 }
 
 model Conversation {
   id        String   @id @default(uuid()) @db.Uuid
-  trainerId String   @map("trainer_id") @db.Uuid
-  clientId  String   @map("client_id") @db.Uuid
-  createdAt DateTime @default(now()) @map("created_at")
+  trainerId String   @db.Uuid
+  clientId  String   @db.Uuid
+  createdAt DateTime @default(now())
 
   trainer  User      @relation("ConversationTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
   client   User      @relation("ConversationClient", fields: [clientId], references: [id], onDelete: Cascade)
   messages Message[]
 
   @@unique([trainerId, clientId])
-  @@map("conversations")
 }
 
 model Message {
   id             String      @id @default(uuid()) @db.Uuid
-  conversationId String      @map("conversation_id") @db.Uuid
-  senderId       String      @map("sender_id") @db.Uuid
+  conversationId String      @db.Uuid
+  senderId       String      @db.Uuid
   body           String
   type           MessageType @default(TEXT)
-  createdAt      DateTime    @default(now()) @map("created_at")
+  createdAt      DateTime    @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
-
-  @@map("messages")
 }
 
 model Transaction {
   id            String            @id @default(uuid()) @db.Uuid
-  clientId      String            @map("client_id") @db.Uuid
-  trainerId     String            @map("trainer_id") @db.Uuid
-  grossAmount   Float             @map("gross_amount")
-  platformFee   Float             @map("platform_fee")
-  trainerAmount Float             @map("trainer_amount")
+  clientId      String            @db.Uuid
+  trainerId     String            @db.Uuid
+  grossAmount   Float
+  platformFee   Float
+  trainerAmount Float
   currency      String
   status        TransactionStatus @default(PENDING)
-  createdAt     DateTime          @default(now()) @map("created_at")
+  createdAt     DateTime          @default(now())
 
   client  User @relation("TransactionClient", fields: [clientId], references: [id], onDelete: Cascade)
   trainer User @relation("TransactionTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
-
-  @@map("transactions")
 }
 
 model TrainerWallet {
-  trainerId String @id @map("trainer_id") @db.Uuid
+  trainerId String @id @db.Uuid
   balance   Float  @default(0)
 
   trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-
-  @@map("trainer_wallets")
 }
 
 model Payout {
   id          String       @id @default(uuid()) @db.Uuid
-  trainerId   String       @map("trainer_id") @db.Uuid
+  trainerId   String       @db.Uuid
   amount      Float
   status      PayoutStatus @default(REQUESTED)
-  requestedAt DateTime     @default(now()) @map("requested_at")
-  paidAt      DateTime?    @map("paid_at")
+  requestedAt DateTime     @default(now())
+  paidAt      DateTime?
 
   trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-
-  @@map("payouts")
 }
 
 model ActivityLog {
   id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  userId    String   @db.Uuid
   action    String
   metadata  Json?
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("activity_logs")
 }
 
 model BlacklistedToken {

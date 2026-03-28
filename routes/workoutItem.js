@@ -1,12 +1,13 @@
 import { Router } from "express";
 import {
-  createWorkout,
-  deleteAllWorkouts,
-  deleteWorkoutById,
-  getAllWorkouts,
-  getWorkoutById,
-  updateWorkoutByIdPatch,
-} from "../controllers/workout.js";
+  createWorkoutItem,
+  deleteAllWorkoutItems,
+  deleteWorkoutItemById,
+  getAllWorkoutItems,
+  getAllWorkoutItemsByWorkoutId,
+  getWorkoutItemById,
+  updateWorkoutItemByIdPatch,
+} from "../controllers/workoutItem.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
 
@@ -16,37 +17,43 @@ router.post(
   "/create",
   verifyToken,
   checkPermission("CREATE-WORKOUTS"),
-  createWorkout,
+  createWorkoutItem,
 );
 router.get(
   "/getAll",
   verifyToken,
   checkPermission("VIEW-WORKOUTS"),
-  getAllWorkouts,
+  getAllWorkoutItems,
+);
+router.get(
+  "/getAllByWorkoutId/:workoutId",
+  verifyToken,
+  checkPermission("VIEW-WORKOUTS"),
+  getAllWorkoutItemsByWorkoutId,
 );
 router.get(
   "/getById/:id",
   verifyToken,
   checkPermission("VIEW-WORKOUTS"),
-  getWorkoutById,
+  getWorkoutItemById,
 );
 router.patch(
   "/update/:id",
   verifyToken,
   checkPermission("UPDATE-WORKOUTS"),
-  updateWorkoutByIdPatch,
+  updateWorkoutItemByIdPatch,
 );
 router.delete(
   "/delete/:id",
   verifyToken,
   checkPermission("DELETE-WORKOUTS"),
-  deleteWorkoutById,
+  deleteWorkoutItemById,
 );
 router.delete(
   "/deleteAll",
   verifyToken,
   checkPermission("DELETE-WORKOUTS"),
-  deleteAllWorkouts,
+  deleteAllWorkoutItems,
 );
 
 export default router;

@@ -102,7 +102,7 @@ export const checkPermission = (required, requireBranchId = false) => {
       );
 
       if (!hasAll) {
-        return next(new AppError("Forbidden: insufficient permissions", 403));
+        return next(new AppError("Forbidden: You don't have permission to perform this action", 403));
       }
 
       return next();

@@ -13,37 +13,37 @@ import { checkPermission } from "../middleware/checkPermission.js";
 const router = Router();
 
 router.post(
-  "/",
+  "/create",
   verifyToken,
   checkPermission("CREATE-WORKOUT-TEMPLATES"),
   createWorkoutTemplate,
 );
 router.get(
-  "/",
+  "/getAll/:trainerId",
   verifyToken,
   checkPermission("VIEW-WORKOUT-TEMPLATES"),
   getAllWorkoutTemplates,
 );
 router.get(
-  "/:id",
+  "/getById/:id",
   verifyToken,
   checkPermission("VIEW-WORKOUT-TEMPLATES"),
   getWorkoutTemplateById,
 );
 router.patch(
-  "/:id",
+  "/update/:id",
   verifyToken,
   checkPermission("UPDATE-WORKOUT-TEMPLATES"),
   updateWorkoutTemplateByIdPatch,
 );
 router.delete(
-  "/:id",
+  "/delete/:id",
   verifyToken,
   checkPermission("DELETE-WORKOUT-TEMPLATES"),
   deleteWorkoutTemplateById,
 );
 router.delete(
-  "/",
+  "/deleteAll",
   verifyToken,
   checkPermission("DELETE-WORKOUT-TEMPLATES"),
   deleteAllWorkoutTemplates,

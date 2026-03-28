@@ -60,9 +60,15 @@ const syncRolePermissions = async (roleIdByName, permissionIdByKey) => {
 };
 
 const main = async () => {
-  if (!process.env.PRISMA_URL) {
+  if (
+    !process.env.PRISMA_URL &&
+    !process.env.DATABASE_URL &&
+    !process.env.POSTGRES_PRISMA_URL &&
+    !process.env.POSTGRES_URL_NON_POOLING &&
+    !process.env.POSTGRES_URL
+  ) {
     throw new Error(
-      "PRISMA_URL is missing. Set it in .env before running seed:rbac",
+      "Database URL is missing. Set one of PRISMA_URL, DATABASE_URL, POSTGRES_PRISMA_URL, POSTGRES_URL_NON_POOLING, or POSTGRES_URL in .env before running seed:rbac",
     );
   }
 
@@ -78,7 +84,7 @@ main()
   .catch((error) => {
     if (error?.code === "P1010") {
       console.error(
-        "RBAC seed failed: database access denied (P1010). Check PRISMA_URL credentials and ensure the DB user has INSERT/UPDATE/DELETE privileges on roles, permissions, and role_permissions.",
+        "RBAC seed failed: database access denied (P1010). Check PRISMA_URL/DATABASE_URL credentials and ensure the DB user has INSERT/UPDATE/DELETE privileges on roles, permissions, and role_permissions.",
       );
     }
     console.error("RBAC seed failed", error);
