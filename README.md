@@ -2,6 +2,40 @@
 
 > A RESTful API backend for a fitness trainer-client platform built with **Node.js**, **Express v5**, **Prisma ORM**, and **PostgreSQL**.
 
+## Meal Planning API Docs
+
+- OpenAPI file for the new nutrition/meal endpoints: [docs/openapi.meals.yaml](docs/openapi.meals.yaml)
+- Covered groups: Foods, Meal Templates, Meal Plans, Progress
+- Includes request/response examples and auth requirements for:
+  - `GET /api/v1/foods`
+  - `POST /api/v1/foods`
+  - `GET /api/v1/foods/:id/portions`
+  - `POST /api/v1/templates`
+  - `GET /api/v1/templates`
+  - `POST /api/v1/templates/:id/days`
+  - `POST /api/v1/templates/:id/items`
+  - `POST /api/v1/meal-plans`
+  - `POST /api/v1/meal-plans/from-template`
+  - `GET /api/v1/meal-plans/:id`
+  - `GET /api/v1/clients/:id/meal-plans`
+  - `POST /api/v1/progress`
+  - `GET /api/v1/progress`
+
+## Prisma Migration Workflow
+
+- Full guide: [docs/prisma-migration-workflow.md](docs/prisma-migration-workflow.md)
+- Use local DB for development migrations:
+  - `npm run prisma:dev:migrate -- --name your_change`
+  - `npm run prisma:dev:status`
+- Use remote DB only for deploy:
+  - `npm run prisma:prod:deploy`
+
+Recommended env split:
+
+- `.env.local` -> local Postgres for fast `migrate dev`
+- `.env` -> shared/staging/prod DB for `migrate deploy`
+- Optional `PRISMA_MIGRATE_URL` -> direct (non-pooled) URL for safer/faster migrations
+
 ---
 
 ## Table of Contents

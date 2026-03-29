@@ -31,6 +31,13 @@ enum MealTime {
   SNACK
 }
 
+enum MealPlanStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
 enum ProgressMetricType {
   WEIGHT
   BODY_FAT
@@ -210,7 +217,7 @@ model WorkoutItem {
   notes String?
   tempo String?
   rir   Int?
-  rpe    Float?
+  rpe   Float?
 
   workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
   exercise Exercise @relation(fields: [exerciseId], references: [id])
@@ -219,61 +226,165 @@ model WorkoutItem {
 }
 
 model Food {
-  id       String @id @default(uuid()) @db.Uuid
-  name     String
-  calories Float
-  protein  Float
-  carbs    Float
-  fat      Float
+  id        String @id @default(uuid()) @db.Uuid
+  name      String
+  baseGrams Float // ALWAYS normalized (e.g. 100g)
 
-  portions      FoodPortion[]
-  mealPlanItems MealPlanItem[]
+  calories   Float
+  protein    Float
+  carbs      Float
+  fat        Float
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  portions          FoodPortion[]
+  mealPlanItems     MealPlanItem[]
+  mealTemplateItems MealTemplateItem[]
+
+  @@index([name])
+  @@index([name, baseGrams])
+  @@index([isArchived])
 }
 
 model FoodPortion {
-  id         String @id @default(uuid()) @db.Uuid
-  foodId     String @db.Uuid
-  label      String
-  multiplier Float
+  id     String @id @default(uuid()) @db.Uuid
+  foodId String @db.Uuid
+  label  String // "1 cup", "1 piece"
+  grams  Float // REAL value
 
-  food          Food           @relation(fields: [foodId], references: [id], onDelete: Cascade)
-  mealPlanItems MealPlanItem[]
+  food              Food               @relation(fields: [foodId], references: [id], onDelete: Cascade)
+  mealPlanItems     MealPlanItem[]
+  mealTemplateItems MealTemplateItem[]
+
+  @@unique([foodId, label])
+  @@unique([id, foodId])
+  @@index([foodId])
 }
 
 model MealTemplate {
-  id          String  @id @default(uuid()) @db.Uuid
-  trainerId   String  @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  trainerId   String   @db.Uuid
   title       String
   description String?
+  isArchived  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  trainer   User       @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-  mealPlans MealPlan[]
+  trainer   User              @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  days      MealTemplateDay[]
+  mealPlans MealPlan[]        @relation("MealPlanSourceTemplate")
+
+  @@index([trainerId])
+  @@index([trainerId, isArchived])
+}
+
+model MealTemplateDay {
+  id             String   @id @default(uuid()) @db.Uuid
+  mealTemplateId String   @db.Uuid
+  dayIndex       Int
+  createdAt      DateTime @default(now())
+
+  template MealTemplate       @relation(fields: [mealTemplateId], references: [id], onDelete: Cascade)
+  items    MealTemplateItem[]
+
+  @@unique([mealTemplateId, dayIndex])
+  @@index([mealTemplateId])
+}
+
+model MealTemplateItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  dayId     String   @db.Uuid
+  foodId    String   @db.Uuid
+  portionId String   @db.Uuid
+  quantity  Float    @default(1)
+  mealTime  MealTime
+  sortOrder Int      @default(0)
+  notes     String?
+  createdAt DateTime @default(now())
+
+  day     MealTemplateDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  food    Food            @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  portion FoodPortion     @relation(fields: [portionId, foodId], references: [id, foodId], onDelete: Restrict)
+
+  @@unique([dayId, mealTime, sortOrder])
+  @@index([dayId])
+  @@index([foodId])
 }
 
 model MealPlan {
-  id             String   @id @default(uuid()) @db.Uuid
-  mealTemplateId String?  @db.Uuid
-  clientId       String   @db.Uuid
-  trainerId      String   @db.Uuid
-  startDate      DateTime @db.Date
-  endDate        DateTime @db.Date
+  id                   String         @id @default(uuid()) @db.Uuid
+  sourceMealTemplateId String?        @db.Uuid
+  clientId             String         @db.Uuid
+  trainerId            String         @db.Uuid
+  status               MealPlanStatus @default(DRAFT)
+  title                String?
+  notes                String?
+  startDate            DateTime       @db.Date
+  endDate              DateTime       @db.Date
+  generatedAt          DateTime       @default(now())
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
-  mealTemplate MealTemplate?  @relation(fields: [mealTemplateId], references: [id], onDelete: SetNull)
-  client       User           @relation("MealPlanClient", fields: [clientId], references: [id], onDelete: Cascade)
-  trainer      User           @relation("MealPlanTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
-  items        MealPlanItem[]
+  sourceTemplate MealTemplate? @relation("MealPlanSourceTemplate", fields: [sourceMealTemplateId], references: [id], onDelete: SetNull)
+
+  client  User @relation("MealPlanClient", fields: [clientId], references: [id], onDelete: Cascade)
+  trainer User @relation("MealPlanTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+
+  days MealPlanDay[]
+
+  @@index([sourceMealTemplateId])
+  @@index([clientId, status, startDate])
+  @@index([trainerId, status, startDate])
+  @@index([startDate, endDate])
+}
+
+model MealPlanDay {
+  id         String   @id @default(uuid()) @db.Uuid
+  mealPlanId String   @db.Uuid
+  dayIndex   Int
+  date       DateTime @db.Date
+  createdAt  DateTime @default(now())
+
+  mealPlan MealPlan       @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  items    MealPlanItem[]
+
+  @@unique([mealPlanId, dayIndex])
+  @@unique([mealPlanId, date])
+  @@index([mealPlanId])
+  @@index([date])
 }
 
 model MealPlanItem {
-  id         String   @id @default(uuid()) @db.Uuid
-  mealPlanId String   @db.Uuid
-  foodId     String   @db.Uuid
-  portionId  String   @db.Uuid
-  mealTime   MealTime
+  id            String   @id @default(uuid()) @db.Uuid
+  mealPlanDayId String   @db.Uuid
+  foodId        String   @db.Uuid
+  portionId     String   @db.Uuid
+  quantity      Float    @default(1)
+  mealTime      MealTime
+  sortOrder     Int      @default(0)
 
-  mealPlan MealPlan    @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
-  food     Food        @relation(fields: [foodId], references: [id], onDelete: Restrict)
-  portion  FoodPortion @relation(fields: [portionId], references: [id], onDelete: Restrict)
+  // Nutrition snapshot at assignment time to keep historical plans immutable.
+  foodNameSnapshot     String
+  portionLabelSnapshot String
+  gramsPerPortion      Float
+  baseGramsSnapshot    Float
+  caloriesSnapshot     Float
+  proteinSnapshot      Float
+  carbsSnapshot        Float
+  fatSnapshot          Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  day     MealPlanDay @relation(fields: [mealPlanDayId], references: [id], onDelete: Cascade)
+  food    Food        @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  portion FoodPortion @relation(fields: [portionId, foodId], references: [id, foodId], onDelete: Restrict)
+
+  @@unique([mealPlanDayId, mealTime, sortOrder])
+  @@index([mealPlanDayId])
+  @@index([foodId])
+  @@index([mealTime])
 }
 
 model ProgressMetric {
@@ -284,6 +395,8 @@ model ProgressMetric {
   recordedAt DateTime           @db.Date
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Conversation {

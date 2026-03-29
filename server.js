@@ -29,6 +29,10 @@ import workoutItemRoutes from "./routes/workoutItem.js";
 import exerciseRoutes from "./routes/exercise.js";
 import permissionRoutes from "./routes/permission.js";
 import rolePermissionRoutes from "./routes/rolePermission.js";
+import foodRoutes from "./routes/food.js";
+import mealTemplateRoutes from "./routes/mealTemplate.js";
+import mealPlanRoutes from "./routes/mealPlan.js";
+import progressRoutes from "./routes/progress.js";
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
@@ -42,6 +46,10 @@ app.use("/api/v1/workout-templates", workoutTemplateRoutes);
 app.use("/api/v1/workouts", workoutRoutes);
 app.use("/api/v1/workout-items", workoutItemRoutes);
 app.use("/api/v1/exercises", exerciseRoutes);
+app.use("/api/v1/foods", foodRoutes);
+app.use("/api/v1/templates", mealTemplateRoutes);
+app.use("/api/v1", mealPlanRoutes);
+app.use("/api/v1/progress", progressRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);

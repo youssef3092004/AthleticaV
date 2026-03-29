@@ -1,0 +1,793 @@
+openapi: 3.0.3
+info:
+  title: AthleticaV Meal Planning API
+  version: 1.0.0
+  description: |
+    OpenAPI documentation for the meal planning, food library, and progress tracking endpoints.
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+tags:
+  - name: Foods
+  - name: Meal Templates
+  - name: Meal Plans
+  - name: Progress
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Forbidden
+      required: [success, error]
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 55
+        totalPages:
+          type: integer
+          example: 3
+        sort:
+          type: string
+          example: createdAt
+        order:
+          type: string
+          enum: [asc, desc]
+          example: desc
+      required: [page, limit, total, totalPages, sort, order]
+
+    FoodPortion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          example: 1 cup
+        grams:
+          type: number
+          format: float
+          example: 160
+      required: [id, label, grams]
+
+    Food:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Cooked Rice
+        baseGrams:
+          type: number
+          format: float
+          example: 100
+        calories:
+          type: number
+          format: float
+          example: 130
+        protein:
+          type: number
+          format: float
+          example: 2.5
+        carbs:
+          type: number
+          format: float
+          example: 28
+        fat:
+          type: number
+          format: float
+          example: 0.3
+        isArchived:
+          type: boolean
+          example: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - baseGrams
+        - calories
+        - protein
+        - carbs
+        - fat
+        - isArchived
+        - createdAt
+        - updatedAt
+
+    MealTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        trainerId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        isArchived:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, trainerId, title, isArchived, createdAt, updatedAt]
+
+    MealPlanItemSnapshot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        foodId:
+          type: string
+          format: uuid
+        portionId:
+          type: string
+          format: uuid
+        quantity:
+          type: number
+          format: float
+          example: 1.5
+        mealTime:
+          type: string
+          enum: [BREAKFAST, LUNCH, DINNER, SNACK]
+        sortOrder:
+          type: integer
+          example: 0
+        foodNameSnapshot:
+          type: string
+          example: Cooked Rice
+        portionLabelSnapshot:
+          type: string
+          example: 1 cup
+        gramsPerPortion:
+          type: number
+          format: float
+          example: 160
+        baseGramsSnapshot:
+          type: number
+          format: float
+          example: 100
+        caloriesSnapshot:
+          type: number
+          format: float
+          example: 130
+        proteinSnapshot:
+          type: number
+          format: float
+          example: 2.5
+        carbsSnapshot:
+          type: number
+          format: float
+          example: 28
+        fatSnapshot:
+          type: number
+          format: float
+          example: 0.3
+      required:
+        - id
+        - foodId
+        - portionId
+        - quantity
+        - mealTime
+        - sortOrder
+        - foodNameSnapshot
+        - portionLabelSnapshot
+        - gramsPerPortion
+        - baseGramsSnapshot
+        - caloriesSnapshot
+        - proteinSnapshot
+        - carbsSnapshot
+        - fatSnapshot
+
+    MealPlanDay:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dayIndex:
+          type: integer
+          example: 0
+        date:
+          type: string
+          format: date
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MealPlanItemSnapshot"
+      required: [id, dayIndex, date, items]
+
+    MealPlan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceMealTemplateId:
+          type: string
+          format: uuid
+          nullable: true
+        trainerId:
+          type: string
+          format: uuid
+        clientId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [DRAFT, ACTIVE, COMPLETED, CANCELLED]
+        title:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        generatedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/MealPlanDay"
+      required:
+        - id
+        - trainerId
+        - clientId
+        - status
+        - startDate
+        - endDate
+        - generatedAt
+        - createdAt
+        - updatedAt
+        - days
+
+    ProgressMetric:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        metric:
+          type: string
+          enum: [WEIGHT, BODY_FAT, MUSCLE]
+        value:
+          type: number
+          format: float
+          example: 77.4
+        recordedAt:
+          type: string
+          format: date
+      required: [id, userId, metric, value, recordedAt]
+
+security:
+  - bearerAuth: []
+
+paths:
+  /foods:
+    get:
+      tags: [Foods]
+      summary: List foods
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: includeArchived
+          schema: { type: boolean }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [name, createdAt, updatedAt, id]
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  - id: 6d7ef0b7-0067-4fc2-8ecf-fc4e632f47d9
+                    name: Cooked Rice
+                    baseGrams: 100
+                    calories: 130
+                    protein: 2.5
+                    carbs: 28
+                    fat: 0.3
+                    isArchived: false
+                    createdAt: 2026-03-29T00:00:00.000Z
+                    updatedAt: 2026-03-29T00:00:00.000Z
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 1
+                  totalPages: 1
+                  sort: name
+                  order: asc
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      tags: [Foods]
+      summary: Create food (admin/developer/owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, baseGrams, calories, protein, carbs, fat]
+              properties:
+                name: { type: string }
+                baseGrams: { type: number, format: float }
+                calories: { type: number, format: float }
+                protein: { type: number, format: float }
+                carbs: { type: number, format: float }
+                fat: { type: number, format: float }
+                portions:
+                  type: array
+                  items:
+                    type: object
+                    required: [label, grams]
+                    properties:
+                      label: { type: string }
+                      grams: { type: number, format: float }
+            example:
+              name: Cooked Rice
+              baseGrams: 100
+              calories: 130
+              protein: 2.5
+              carbs: 28
+              fat: 0.3
+              portions:
+                - label: 1 cup
+                  grams: 160
+                - label: 1 tbsp
+                  grams: 15
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: 6d7ef0b7-0067-4fc2-8ecf-fc4e632f47d9
+                  name: Cooked Rice
+                  baseGrams: 100
+                  calories: 130
+                  protein: 2.5
+                  carbs: 28
+                  fat: 0.3
+                  isArchived: false
+                  createdAt: 2026-03-29T00:00:00.000Z
+                  updatedAt: 2026-03-29T00:00:00.000Z
+                  portions:
+                    - id: 061afe4e-7fd0-4aeb-bbcf-f86d2de06ea8
+                      label: 1 cup
+                      grams: 160
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /foods/{id}/portions:
+    get:
+      tags: [Foods]
+      summary: Get food portions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: 6d7ef0b7-0067-4fc2-8ecf-fc4e632f47d9
+                  name: Cooked Rice
+                  baseGrams: 100
+                  isArchived: false
+                  portions:
+                    - id: 061afe4e-7fd0-4aeb-bbcf-f86d2de06ea8
+                      label: 1 cup
+                      grams: 160
+
+  /templates:
+    post:
+      tags: [Meal Templates]
+      summary: Create meal template (trainer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                trainerId:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                description:
+                  type: string
+            example:
+              title: Lean Bulk Week A
+              description: High-carb training week template
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: 3796e4f3-b438-4644-8158-4e2d8477f32f
+                  trainerId: 0c0d7a92-a9ec-4955-b60d-2f80f47f8e09
+                  title: Lean Bulk Week A
+                  description: High-carb training week template
+                  isArchived: false
+                  createdAt: 2026-03-29T00:00:00.000Z
+                  updatedAt: 2026-03-29T00:00:00.000Z
+    get:
+      tags: [Meal Templates]
+      summary: List meal templates
+      parameters:
+        - in: query
+          name: trainerId
+          schema: { type: string, format: uuid }
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: includeArchived
+          schema: { type: boolean }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Success
+
+  /templates/{id}/days:
+    post:
+      tags: [Meal Templates]
+      summary: Add day to template
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              dayIndex: 0
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: 876dcb1f-74c4-4cc3-b243-4f897317954b
+                  mealTemplateId: 3796e4f3-b438-4644-8158-4e2d8477f32f
+                  dayIndex: 0
+                  createdAt: 2026-03-29T00:00:00.000Z
+
+  /templates/{id}/items:
+    post:
+      tags: [Meal Templates]
+      summary: Add item to template day
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              dayIndex: 0
+              foodId: 6d7ef0b7-0067-4fc2-8ecf-fc4e632f47d9
+              portionId: 061afe4e-7fd0-4aeb-bbcf-f86d2de06ea8
+              quantity: 1.5
+              mealTime: LUNCH
+              sortOrder: 0
+              notes: pre-workout meal
+      responses:
+        "201":
+          description: Created
+
+  /meal-plans:
+    post:
+      tags: [Meal Plans]
+      summary: Create manual meal plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              trainerId: 0c0d7a92-a9ec-4955-b60d-2f80f47f8e09
+              clientId: 4d2e752d-d771-4d17-9cfb-a4975eff0b40
+              title: Cut Phase Week 1
+              notes: keep hydration high
+              status: ACTIVE
+              startDate: 2026-04-01
+              endDate: 2026-04-07
+              days:
+                - dayIndex: 0
+                  date: 2026-04-01
+                  items:
+                    - foodId: 6d7ef0b7-0067-4fc2-8ecf-fc4e632f47d9
+                      portionId: 061afe4e-7fd0-4aeb-bbcf-f86d2de06ea8
+                      quantity: 1.25
+                      mealTime: BREAKFAST
+                      sortOrder: 0
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    $ref: "#/components/schemas/MealPlan"
+        "200":
+          description: Idempotent existing plan returned
+          content:
+            application/json:
+              example:
+                success: true
+                idempotent: true
+                data:
+                  id: ffb7d861-ea7c-4304-a1a8-5a7689b4e757
+
+  /meal-plans/from-template:
+    post:
+      tags: [Meal Plans]
+      summary: Generate meal plan from template (copies data + snapshots)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              templateId: 3796e4f3-b438-4644-8158-4e2d8477f32f
+              clientId: 4d2e752d-d771-4d17-9cfb-a4975eff0b40
+              title: April Week 1
+              notes: generated from template
+              status: ACTIVE
+              startDate: 2026-04-01
+              endDate: 2026-04-07
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    $ref: "#/components/schemas/MealPlan"
+
+  /meal-plans/{id}:
+    get:
+      tags: [Meal Plans]
+      summary: Get meal plan by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    $ref: "#/components/schemas/MealPlan"
+
+  /clients/{id}/meal-plans:
+    get:
+      tags: [Meal Plans]
+      summary: List meal plans for a client
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [DRAFT, ACTIVE, COMPLETED, CANCELLED]
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [createdAt, startDate, endDate, updatedAt, id]
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Success
+
+  /progress:
+    post:
+      tags: [Progress]
+      summary: Create progress metric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              userId: 4d2e752d-d771-4d17-9cfb-a4975eff0b40
+              metric: WEIGHT
+              value: 77.4
+              recordedAt: 2026-03-29
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  id: d2f5d8e5-e6a6-4abf-9798-316d61dcd988
+                  userId: 4d2e752d-d771-4d17-9cfb-a4975eff0b40
+                  metric: WEIGHT
+                  value: 77.4
+                  recordedAt: 2026-03-29
+    get:
+      tags: [Progress]
+      summary: List progress metrics
+      parameters:
+        - in: query
+          name: userId
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: metric
+          schema:
+            type: string
+            enum: [WEIGHT, BODY_FAT, MUSCLE]
+        - in: query
+          name: recordedAtFrom
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: recordedAtTo
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              example:
+                success: true
+                data:
+                  - id: d2f5d8e5-e6a6-4abf-9798-316d61dcd988
+                    userId: 4d2e752d-d771-4d17-9cfb-a4975eff0b40
+                    metric: WEIGHT
+                    value: 77.4
+                    recordedAt: 2026-03-29
+                meta:
+                  page: 1
+                  limit: 30
+                  total: 1
+                  totalPages: 1
+                  sort: recordedAt
+                  order: desc
