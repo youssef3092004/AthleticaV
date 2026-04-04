@@ -26,16 +26,18 @@ enum WorkoutLevel {
 
 enum MealTime {
   BREAKFAST
+  MORNING_SNACK
   LUNCH
+  AFTERNOON_SNACK
   DINNER
-  SNACK
+  EVENING_SNACK
 }
 
 enum MealPlanStatus {
   DRAFT
   ACTIVE
   COMPLETED
-  CANCELLED
+  ARCHIVED
 }
 
 enum ProgressMetricType {
@@ -48,6 +50,25 @@ enum MessageType {
   TEXT
   IMAGE
   VIDEO
+  FILE
+}
+
+enum BillingCycle {
+  MONTHLY
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
 }
 
 enum TransactionStatus {
@@ -74,20 +95,26 @@ model User {
 
   userRoles              UserRole[]
   trainerProfile         TrainerProfile?
-  trainerClientsAsCoach  TrainerClient[]   @relation("TrainerClientsTrainer")
-  trainerClientsAsUser   TrainerClient[]   @relation("TrainerClientsClient")
+  clientProfile          ClientProfile?
+  subscriptions          Subscription[]
+  trainerClientsAsCoach  TrainerClient[]     @relation("TrainerClientsTrainer")
+  trainerClientsAsUser   TrainerClient[]     @relation("TrainerClientsClient")
+  notifications          Notification[]
+  appointmentsAsTrainer  Appointment[]       @relation("AppointmentTrainer")
+  appointmentsAsClient   Appointment[]       @relation("AppointmentClient")
   workoutTemplates       WorkoutTemplate[]
-  workoutsAsClient       Workout[]         @relation("WorkoutClient")
-  workoutsAsTrainer      Workout[]         @relation("WorkoutTrainer")
+  workoutsAsClient       Workout[]           @relation("WorkoutClient")
+  workoutsAsTrainer      Workout[]           @relation("WorkoutTrainer")
+  workoutCompletions     WorkoutCompletion[]
   mealTemplates          MealTemplate[]
-  mealPlansAsClient      MealPlan[]        @relation("MealPlanClient")
-  mealPlansAsTrainer     MealPlan[]        @relation("MealPlanTrainer")
+  mealPlansAsTrainer     MealPlan[]          @relation("MealPlanTrainer")
+  mealCompletions        MealCompletion[]
   progressMetrics        ProgressMetric[]
-  conversationsAsTrainer Conversation[]    @relation("ConversationTrainer")
-  conversationsAsClient  Conversation[]    @relation("ConversationClient")
-  sentMessages           Message[]         @relation("MessageSender")
-  transactionsAsClient   Transaction[]     @relation("TransactionClient")
-  transactionsAsTrainer  Transaction[]     @relation("TransactionTrainer")
+  conversationsAsTrainer Conversation[]      @relation("ConversationTrainer")
+  conversationsAsClient  Conversation[]      @relation("ConversationClient")
+  sentMessages           Message[]           @relation("MessageSender")
+  transactionsAsClient   Transaction[]       @relation("TransactionClient")
+  transactionsAsTrainer  Transaction[]       @relation("TransactionTrainer")
   trainerWallet          TrainerWallet?
   payouts                Payout[]
   activityLogs           ActivityLog[]
@@ -117,6 +144,7 @@ model UserRole {
   role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+  @@index([roleId])
 }
 
 model RolePermission {
@@ -127,6 +155,52 @@ model RolePermission {
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model Plan {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String
+  price        Decimal      @db.Decimal(10, 2)
+  billingCycle BillingCycle
+  isActive     Boolean      @default(true)
+
+  createdAt DateTime @default(now())
+
+  subscriptions Subscription[]
+
+  @@unique([name, billingCycle])
+  @@index([isActive])
+}
+
+model Subscription {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  planId String @db.Uuid
+
+  status SubscriptionStatus @default(TRIAL)
+
+  trialStart DateTime?
+  trialEnd   DateTime?
+
+  startDate DateTime? // for start payment only
+  endDate   DateTime? // when the subscription is cancelled or expired
+
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+
+  cancelAtPeriodEnd Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status, trialEnd])
+  @@index([status, endDate])
 }
 
 model TrainerProfile {
@@ -141,17 +215,78 @@ model TrainerProfile {
   trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
 }
 
+model ClientProfile {
+  id                String   @id @default(uuid()) @db.Uuid
+  clientId          String   @unique @db.Uuid
+  age               Int
+  heightCm          Decimal
+  weightKg          Decimal
+  fitnessGoal       String
+  medicalConditions String?
+  targetCalories    Float?
+  targetProtein     Float?
+  targetCarbs       Float?
+  targetFat         Float?
+  dietaryNotes      String?
+  updatedAt         DateTime @updatedAt
+
+  client    User       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mealPlans MealPlan[]
+
+  @@index([clientId])
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  title     String
+  body      String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead, createdAt])
+}
+
+model Appointment {
+  id          String            @id @default(uuid()) @db.Uuid
+  trainerId   String            @db.Uuid
+  clientId    String            @db.Uuid
+  title       String
+  scheduledAt DateTime
+  durationMin Int
+  status      AppointmentStatus @default(SCHEDULED)
+  notes       String?
+  createdAt   DateTime          @default(now())
+
+  trainer User @relation("AppointmentTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  client  User @relation("AppointmentClient", fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([trainerId])
+  @@index([clientId])
+  @@index([scheduledAt])
+  @@index([trainerId, scheduledAt])
+  @@index([clientId, scheduledAt])
+}
+
 model TrainerClient {
-  id        String              @id @default(uuid()) @db.Uuid
-  trainerId String              @db.Uuid
-  clientId  String              @db.Uuid
-  status    TrainerClientStatus @default(ACTIVE)
-  startedAt DateTime            @default(now())
+  id           String              @id @default(uuid()) @db.Uuid
+  trainerId    String              @db.Uuid
+  clientId     String              @db.Uuid
+  status       TrainerClientStatus @default(ACTIVE)
+  monthlyPrice Decimal?            @db.Decimal(10, 2)
+  notes        String?
+  startedAt    DateTime            @default(now())
 
   trainer User @relation("TrainerClientsTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
   client  User @relation("TrainerClientsClient", fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([trainerId, clientId])
+  @@index([trainerId])
+  @@index([clientId])
 }
 
 enum Category {
@@ -174,8 +309,11 @@ model Exercise {
   instructions String?
   createdAt    DateTime @default(now())
 
-  trainer      User          @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-  workoutItems WorkoutItem[]
+  trainer              User                  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  workoutItems         WorkoutItem[]
+  workoutTemplateItems WorkoutTemplateItem[]
+
+  @@index([trainerId])
 }
 
 model WorkoutTemplate {
@@ -185,8 +323,48 @@ model WorkoutTemplate {
   level     WorkoutLevel @default(BEGINNER)
   createdAt DateTime     @default(now())
 
-  trainer  User      @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  trainer  User                 @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  days     WorkoutTemplateDay[]
   workouts Workout[]
+
+  @@index([trainerId])
+}
+
+model WorkoutTemplateDay {
+  id                String   @id @default(uuid()) @db.Uuid
+  workoutTemplateId String   @db.Uuid
+  dayIndex          Int
+  label             String?
+  createdAt         DateTime @default(now())
+
+  workoutTemplate WorkoutTemplate       @relation(fields: [workoutTemplateId], references: [id], onDelete: Cascade)
+  items           WorkoutTemplateItem[]
+
+  @@unique([workoutTemplateId, dayIndex])
+  @@index([workoutTemplateId])
+}
+
+model WorkoutTemplateItem {
+  id                   String @id @default(uuid()) @db.Uuid
+  workoutTemplateDayId String @db.Uuid
+  exerciseId           String @db.Uuid
+
+  sets        Int
+  reps        Int
+  restSeconds Int
+  order       Int
+
+  notes String?
+  tempo String?
+  rir   Int?
+  rpe   Float?
+
+  day      WorkoutTemplateDay @relation(fields: [workoutTemplateDayId], references: [id], onDelete: Cascade)
+  exercise Exercise           @relation(fields: [exerciseId], references: [id])
+
+  @@unique([workoutTemplateDayId, order])
+  @@index([workoutTemplateDayId])
+  @@index([exerciseId])
 }
 
 model Workout {
@@ -196,17 +374,42 @@ model Workout {
   trainerId         String   @db.Uuid
   startDate         DateTime @db.Date
   endDate           DateTime @db.Date
+  totalCount        Int      @default(0)
+  completedCount    Int      @default(0)
 
   workoutTemplate WorkoutTemplate? @relation(fields: [workoutTemplateId], references: [id], onDelete: SetNull)
   client          User             @relation("WorkoutClient", fields: [clientId], references: [id], onDelete: Cascade)
   trainer         User             @relation("WorkoutTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
-  items           WorkoutItem[]
+  days            WorkoutDay[]
+
+  @@index([workoutTemplateId])
+  @@index([clientId])
+  @@index([trainerId])
+}
+
+model WorkoutDay {
+  id             String   @id @default(uuid()) @db.Uuid
+  workoutId      String   @db.Uuid
+  dayIndex       Int
+  date           DateTime @db.Date
+  title          String?
+  totalCount     Int      @default(0)
+  completedCount Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  workout Workout       @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  items   WorkoutItem[]
+
+  @@unique([workoutId, dayIndex])
+  @@unique([workoutId, date])
+  @@index([workoutId])
+  @@index([date])
 }
 
 model WorkoutItem {
-  id         String @id @default(uuid()) @db.Uuid
-  workoutId  String @db.Uuid
-  exerciseId String @db.Uuid
+  id           String @id @default(uuid()) @db.Uuid
+  workoutDayId String @db.Uuid
+  exerciseId   String @db.Uuid
 
   sets        Int
   reps        Int
@@ -219,16 +422,41 @@ model WorkoutItem {
   rir   Int?
   rpe   Float?
 
-  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
-  exercise Exercise @relation(fields: [exerciseId], references: [id])
+  day        WorkoutDay         @relation(fields: [workoutDayId], references: [id], onDelete: Cascade)
+  exercise   Exercise           @relation(fields: [exerciseId], references: [id])
+  completion WorkoutCompletion?
 
-  @@index([workoutId])
+  @@unique([workoutDayId, order])
+  @@index([workoutDayId])
+  @@index([exerciseId])
+}
+
+model WorkoutCompletion {
+  id            String   @id @default(uuid()) @db.Uuid
+  workoutItemId String   @unique @db.Uuid
+  clientId      String   @db.Uuid
+  completedAt   DateTime @default(now())
+  note          String?
+
+  workoutItem WorkoutItem @relation(fields: [workoutItemId], references: [id], onDelete: Cascade)
+  client      User        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, completedAt])
+  @@index([workoutItemId])
+}
+
+model FoodCategory {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  foods Food[]
 }
 
 model Food {
-  id        String @id @default(uuid()) @db.Uuid
-  name      String
-  baseGrams Float // ALWAYS normalized (e.g. 100g)
+  id         String @id @default(uuid()) @db.Uuid
+  categoryId String @db.Uuid
+  name       String
+  baseGrams  Float // ALWAYS normalized (e.g. 100g)
 
   calories   Float
   protein    Float
@@ -238,12 +466,14 @@ model Food {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  category FoodCategory @relation(fields: [categoryId], references: [id])
+
   portions          FoodPortion[]
   mealPlanItems     MealPlanItem[]
   mealTemplateItems MealTemplateItem[]
 
   @@index([name])
-  @@index([name, baseGrams])
+  @@index([categoryId, isArchived])
   @@index([isArchived])
 }
 
@@ -267,6 +497,7 @@ model MealTemplate {
   trainerId   String   @db.Uuid
   title       String
   description String?
+  isPublic    Boolean  @default(false)
   isArchived  Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -276,6 +507,7 @@ model MealTemplate {
   mealPlans MealPlan[]        @relation("MealPlanSourceTemplate")
 
   @@index([trainerId])
+  @@index([isPublic, isArchived])
   @@index([trainerId, isArchived])
 }
 
@@ -283,6 +515,7 @@ model MealTemplateDay {
   id             String   @id @default(uuid()) @db.Uuid
   mealTemplateId String   @db.Uuid
   dayIndex       Int
+  label          String?
   createdAt      DateTime @default(now())
 
   template MealTemplate       @relation(fields: [mealTemplateId], references: [id], onDelete: Cascade)
@@ -308,43 +541,48 @@ model MealTemplateItem {
   portion FoodPortion     @relation(fields: [portionId, foodId], references: [id, foodId], onDelete: Restrict)
 
   @@unique([dayId, mealTime, sortOrder])
-  @@index([dayId])
+  @@index([dayId, mealTime])
   @@index([foodId])
 }
 
 model MealPlan {
   id                   String         @id @default(uuid()) @db.Uuid
   sourceMealTemplateId String?        @db.Uuid
-  clientId             String         @db.Uuid
+  clientProfileId      String         @db.Uuid
   trainerId            String         @db.Uuid
   status               MealPlanStatus @default(DRAFT)
+  totalCount           Int            @default(0)
+  completedCount       Int            @default(0)
+  percentage           Float          @default(0)
   title                String?
   notes                String?
   startDate            DateTime       @db.Date
   endDate              DateTime       @db.Date
-  generatedAt          DateTime       @default(now())
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
   sourceTemplate MealTemplate? @relation("MealPlanSourceTemplate", fields: [sourceMealTemplateId], references: [id], onDelete: SetNull)
 
-  client  User @relation("MealPlanClient", fields: [clientId], references: [id], onDelete: Cascade)
-  trainer User @relation("MealPlanTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  clientProfile ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  trainer       User          @relation("MealPlanTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
 
   days MealPlanDay[]
 
   @@index([sourceMealTemplateId])
-  @@index([clientId, status, startDate])
+  @@index([clientProfileId, status, startDate])
   @@index([trainerId, status, startDate])
   @@index([startDate, endDate])
 }
 
 model MealPlanDay {
-  id         String   @id @default(uuid()) @db.Uuid
-  mealPlanId String   @db.Uuid
-  dayIndex   Int
-  date       DateTime @db.Date
-  createdAt  DateTime @default(now())
+  id             String   @id @default(uuid()) @db.Uuid
+  mealPlanId     String   @db.Uuid
+  dayIndex       Int
+  date           DateTime @db.Date
+  completedCount Int      @default(0)
+  totalCount     Int      @default(0)
+  percentage     Float    @default(0)
+  createdAt      DateTime @default(now())
 
   mealPlan MealPlan       @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
   items    MealPlanItem[]
@@ -363,12 +601,12 @@ model MealPlanItem {
   quantity      Float    @default(1)
   mealTime      MealTime
   sortOrder     Int      @default(0)
+  note          String?
 
   // Nutrition snapshot at assignment time to keep historical plans immutable.
   foodNameSnapshot     String
   portionLabelSnapshot String
   gramsPerPortion      Float
-  baseGramsSnapshot    Float
   caloriesSnapshot     Float
   proteinSnapshot      Float
   carbsSnapshot        Float
@@ -377,14 +615,28 @@ model MealPlanItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  day     MealPlanDay @relation(fields: [mealPlanDayId], references: [id], onDelete: Cascade)
-  food    Food        @relation(fields: [foodId], references: [id], onDelete: Restrict)
-  portion FoodPortion @relation(fields: [portionId, foodId], references: [id, foodId], onDelete: Restrict)
+  day        MealPlanDay     @relation(fields: [mealPlanDayId], references: [id], onDelete: Cascade)
+  food       Food            @relation(fields: [foodId], references: [id], onDelete: Restrict)
+  portion    FoodPortion     @relation(fields: [portionId, foodId], references: [id, foodId], onDelete: Restrict)
+  completion MealCompletion?
 
   @@unique([mealPlanDayId, mealTime, sortOrder])
-  @@index([mealPlanDayId])
+  @@index([mealPlanDayId, mealTime])
   @@index([foodId])
-  @@index([mealTime])
+}
+
+model MealCompletion {
+  id             String   @id @default(uuid()) @db.Uuid
+  mealPlanItemId String   @unique @db.Uuid
+  clientId       String   @db.Uuid
+  completedAt    DateTime @default(now())
+  note           String?
+
+  mealPlanItem MealPlanItem @relation(fields: [mealPlanItemId], references: [id], onDelete: Cascade)
+  client       User         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, completedAt])
+  @@index([mealPlanItemId])
 }
 
 model ProgressMetric {
@@ -410,6 +662,8 @@ model Conversation {
   messages Message[]
 
   @@unique([trainerId, clientId])
+  @@index([trainerId])
+  @@index([clientId])
 }
 
 model Message {
@@ -418,10 +672,15 @@ model Message {
   senderId       String      @db.Uuid
   body           String
   type           MessageType @default(TEXT)
+  isRead         Boolean     @default(false)
   createdAt      DateTime    @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([isRead])
 }
 
 model Transaction {
@@ -437,6 +696,10 @@ model Transaction {
 
   client  User @relation("TransactionClient", fields: [clientId], references: [id], onDelete: Cascade)
   trainer User @relation("TransactionTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([trainerId])
+  @@index([status])
 }
 
 model TrainerWallet {
@@ -455,6 +718,8 @@ model Payout {
   paidAt      DateTime?
 
   trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@index([trainerId])
 }
 
 model ActivityLog {
@@ -465,6 +730,8 @@ model ActivityLog {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model BlacklistedToken {

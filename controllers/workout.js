@@ -47,6 +47,29 @@ const ensureWorkoutTemplateExists = async (id) => {
   return template;
 };
 
+const ensureTrainerClientRelationship = async (trainerId, clientId) => {
+  const link = await prisma.trainerClient.findUnique({
+    where: {
+      trainerId_clientId: {
+        trainerId: String(trainerId),
+        clientId: String(clientId),
+      },
+    },
+    select: {
+      id: true,
+      status: true,
+    },
+  });
+
+  if (!link) {
+    throw new AppError("Trainer-client relationship not found", 404);
+  }
+
+  if (link.status !== "ACTIVE") {
+    throw new AppError("Trainer-client relationship is not active", 409);
+  }
+};
+
 const parseDate = (value, fieldName) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -60,6 +83,38 @@ const ensureDateRange = (startDate, endDate) => {
     throw new AppError("End date cannot be before start date", 400);
   }
 };
+
+const addDays = (date, days) => {
+  const copy = new Date(date);
+  copy.setUTCDate(copy.getUTCDate() + Number(days));
+  return copy;
+};
+
+const calculateCompletionPercentage = (completedCount, totalCount) => {
+  const total = Number(totalCount) || 0;
+  const completed = Number(completedCount) || 0;
+  if (total <= 0) return 0;
+  return Number(((completed / total) * 100).toFixed(2));
+};
+
+const withDayCompletionPercentage = (day) => ({
+  ...day,
+  completionPercentage: calculateCompletionPercentage(
+    day.completedCount,
+    day.totalCount,
+  ),
+});
+
+const withWorkoutCompletionPercentage = (workout) => ({
+  ...workout,
+  completionPercentage: calculateCompletionPercentage(
+    workout.completedCount,
+    workout.totalCount,
+  ),
+  ...(Array.isArray(workout.days)
+    ? { days: workout.days.map(withDayCompletionPercentage) }
+    : {}),
+});
 
 const ensureOwnOrPrivileged = (req, trainerId, clientId) => {
   if (canManageAnyWorkout(req.user)) return true;
@@ -114,6 +169,63 @@ const buildListWhere = (req) => {
   return where;
 };
 
+const WORKOUT_LIST_SELECT = {
+  id: true,
+  workoutTemplateId: true,
+  clientId: true,
+  trainerId: true,
+  startDate: true,
+  endDate: true,
+  totalCount: true,
+  completedCount: true,
+};
+
+const WORKOUT_DETAILS_SELECT = {
+  ...WORKOUT_LIST_SELECT,
+  days: {
+    orderBy: {
+      dayIndex: "asc",
+    },
+    select: {
+      id: true,
+      workoutId: true,
+      dayIndex: true,
+      date: true,
+      title: true,
+      totalCount: true,
+      completedCount: true,
+      createdAt: true,
+      items: {
+        orderBy: {
+          order: "asc",
+        },
+        select: {
+          id: true,
+          workoutDayId: true,
+          exerciseId: true,
+          order: true,
+          sets: true,
+          reps: true,
+          restSeconds: true,
+          notes: true,
+          tempo: true,
+          rir: true,
+          rpe: true,
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              category: true,
+              videoUrl: true,
+              instructions: true,
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
 export const createWorkout = async (req, res, next) => {
   try {
     const { workoutTemplateId, clientId, trainerId, startDate, endDate } =
@@ -136,11 +248,13 @@ export const createWorkout = async (req, res, next) => {
 
     await ensureUserExists(clientId, "Client user");
     await ensureUserExists(trainerId, "Trainer user");
+    await ensureTrainerClientRelationship(trainerId, clientId);
 
     const parsedStartDate = parseDate(startDate, "startDate");
     const parsedEndDate = parseDate(endDate, "endDate");
     ensureDateRange(parsedStartDate, parsedEndDate);
 
+    let sourceTemplate = null;
     if (workoutTemplateId) {
       const template = await ensureWorkoutTemplateExists(workoutTemplateId);
       if (
@@ -154,31 +268,132 @@ export const createWorkout = async (req, res, next) => {
           ),
         );
       }
+
+      sourceTemplate = await prisma.workoutTemplate.findUnique({
+        where: { id: String(workoutTemplateId) },
+        select: {
+          id: true,
+          days: {
+            orderBy: {
+              dayIndex: "asc",
+            },
+            select: {
+              dayIndex: true,
+              label: true,
+              items: {
+                orderBy: {
+                  order: "asc",
+                },
+                select: {
+                  exerciseId: true,
+                  order: true,
+                  sets: true,
+                  reps: true,
+                  restSeconds: true,
+                  notes: true,
+                  tempo: true,
+                  rir: true,
+                  rpe: true,
+                },
+              },
+            },
+          },
+        },
+      });
     }
 
-    const workout = await prisma.workout.create({
-      data: {
-        workoutTemplateId: workoutTemplateId || null,
-        clientId,
-        trainerId,
-        startDate: parsedStartDate,
-        endDate: parsedEndDate,
-      },
-      select: {
-        id: true,
-        workoutTemplateId: true,
-        clientId: true,
-        trainerId: true,
-        startDate: true,
-        endDate: true,
-      },
+    if (sourceTemplate?.days?.length) {
+      const maxDayIndex = Math.max(
+        ...sourceTemplate.days.map((d) => d.dayIndex),
+      );
+      const requiredEndDate = addDays(parsedStartDate, maxDayIndex);
+      if (parsedEndDate < requiredEndDate) {
+        return next(
+          new AppError(
+            "End date is too early for selected workout template days",
+            400,
+          ),
+        );
+      }
+    }
+
+    const initialTotalCount = sourceTemplate?.days?.length
+      ? sourceTemplate.days.reduce((sum, day) => sum + day.items.length, 0)
+      : 0;
+
+    const workout = await prisma.$transaction(async (tx) => {
+      const createdWorkout = await tx.workout.create({
+        data: {
+          workoutTemplateId: workoutTemplateId || null,
+          clientId,
+          trainerId,
+          startDate: parsedStartDate,
+          endDate: parsedEndDate,
+          totalCount: initialTotalCount,
+          completedCount: 0,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (sourceTemplate?.days?.length) {
+        for (const templateDay of sourceTemplate.days) {
+          const createdDay = await tx.workoutDay.create({
+            data: {
+              workoutId: createdWorkout.id,
+              dayIndex: templateDay.dayIndex,
+              date: addDays(parsedStartDate, templateDay.dayIndex),
+              title: templateDay.label ?? `Day ${templateDay.dayIndex + 1}`,
+              totalCount: templateDay.items.length,
+              completedCount: 0,
+            },
+            select: { id: true },
+          });
+
+          if (templateDay.items.length) {
+            await tx.workoutItem.createMany({
+              data: templateDay.items.map((item) => ({
+                workoutDayId: createdDay.id,
+                exerciseId: item.exerciseId,
+                order: item.order,
+                sets: item.sets,
+                reps: item.reps,
+                restSeconds: item.restSeconds,
+                notes: item.notes,
+                tempo: item.tempo,
+                rir: item.rir,
+                rpe: item.rpe,
+              })),
+            });
+          }
+        }
+      } else {
+        await tx.workoutDay.create({
+          data: {
+            workoutId: createdWorkout.id,
+            dayIndex: 0,
+            date: parsedStartDate,
+            title: "Day 1",
+            totalCount: 0,
+            completedCount: 0,
+          },
+        });
+      }
+
+      return tx.workout.findUnique({
+        where: { id: createdWorkout.id },
+        select: WORKOUT_DETAILS_SELECT,
+      });
     });
+
+    const payload = withWorkoutCompletionPercentage(workout);
 
     invalidateCacheByTags(buildResourceTags("workouts", workout.id));
 
     return res.status(201).json({
       status: "success",
-      data: workout,
+      data: payload,
       source: "database",
     });
   } catch (error) {
@@ -203,14 +418,7 @@ export const getWorkoutById = async (req, res, next) => {
 
     const workout = await prisma.workout.findUnique({
       where: { id },
-      select: {
-        id: true,
-        workoutTemplateId: true,
-        clientId: true,
-        trainerId: true,
-        startDate: true,
-        endDate: true,
-      },
+      select: WORKOUT_DETAILS_SELECT,
     });
 
     if (!workout) {
@@ -221,11 +429,13 @@ export const getWorkoutById = async (req, res, next) => {
       return next(new AppError("Forbidden", 403));
     }
 
-    setCache(cacheKey, workout, buildResourceTags("workouts", id));
+    const payload = withWorkoutCompletionPercentage(workout);
+
+    setCache(cacheKey, payload, buildResourceTags("workouts", id));
 
     return res.status(200).json({
       status: "success",
-      data: workout,
+      data: payload,
       source: "database",
     });
   } catch (error) {
@@ -264,22 +474,16 @@ export const getAllWorkouts = async (req, res, next) => {
         orderBy: {
           [sort]: order,
         },
-        select: {
-          id: true,
-          workoutTemplateId: true,
-          clientId: true,
-          trainerId: true,
-          startDate: true,
-          endDate: true,
-        },
+        select: WORKOUT_LIST_SELECT,
       }),
     ]);
 
     const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+    const workoutsWithProgress = workouts.map(withWorkoutCompletionPercentage);
 
     const payload = {
       status: "success",
-      data: workouts,
+      data: workoutsWithProgress,
       meta: {
         page,
         limit,
@@ -363,6 +567,13 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
       await ensureUserExists(updateData.trainerId, "Trainer user");
     }
 
+    if (
+      updateData.clientId !== undefined ||
+      updateData.trainerId !== undefined
+    ) {
+      await ensureTrainerClientRelationship(nextTrainerId, nextClientId);
+    }
+
     if (updateData.workoutTemplateId !== undefined) {
       if (
         updateData.workoutTemplateId === null ||
@@ -409,21 +620,16 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
     const updated = await prisma.workout.update({
       where: { id },
       data: updateData,
-      select: {
-        id: true,
-        workoutTemplateId: true,
-        clientId: true,
-        trainerId: true,
-        startDate: true,
-        endDate: true,
-      },
+      select: WORKOUT_LIST_SELECT,
     });
+
+    const payload = withWorkoutCompletionPercentage(updated);
 
     invalidateCacheByTags(buildResourceTags("workouts", id));
 
     return res.status(200).json({
       status: "success",
-      data: updated,
+      data: payload,
       source: "database",
     });
   } catch (error) {

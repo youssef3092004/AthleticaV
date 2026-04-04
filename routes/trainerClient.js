@@ -57,7 +57,17 @@ router.patch(
   checkPermission("UPDATE-TRAINER-CLIENTS"),
   updateStatusToActive,
 );
-router.delete("/deleteById/:id", verifyToken, deleteTrainerClientById);
-router.delete("/deleteAll", verifyToken, deleteAllTrainerClients);
+router.delete(
+  "/deleteById/:id",
+  verifyToken,
+  checkPermission("DELETE-TRAINER-CLIENTS"),
+  deleteTrainerClientById,
+);
+router.delete(
+  "/deleteAll",
+  verifyToken,
+  checkPermission("DELETE-TRAINER-CLIENTS"),
+  deleteAllTrainerClients,
+);
 
 export default router;

@@ -21,5 +21,6 @@ export function errorHandler(err, req, res, next) {
   res.status(statusCode).json({
     success: err.success ?? false,
     error: message,
+    ...(err.code ? { code: err.code } : {}),
   });
 }

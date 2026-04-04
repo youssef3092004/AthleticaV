@@ -1,57 +1,21 @@
 import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
 import { pagination } from "../utils/pagination.js";
+import { recalcMealPlanSummary } from "../utils/mealPlanProgress.js";
 import {
   ensureHasAnyRole,
   ensureSameUserOrPrivileged,
   getUserAccessContext,
 } from "../utils/authz.js";
 
-const ALLOWED_MEAL_TIMES = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
-const ALLOWED_PLAN_STATUSES = ["DRAFT", "ACTIVE", "COMPLETED", "CANCELLED"];
+const ALLOWED_PLAN_STATUSES = ["DRAFT", "ACTIVE", "COMPLETED", "ARCHIVED"];
 const ALLOWED_SORT_FIELDS = [
   "createdAt",
+  "updatedAt",
   "startDate",
   "endDate",
-  "updatedAt",
   "id",
 ];
-
-const parseDateOnly = (value, fieldName) => {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new AppError(`Invalid ${fieldName}`, 400);
-  }
-  return new Date(parsed.toISOString().slice(0, 10));
-};
-
-const parsePositiveNumber = (value, fieldName) => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new AppError(`${fieldName} must be a positive number`, 400);
-  }
-  return parsed;
-};
-
-const parseNonNegativeInteger = (value, fieldName) => {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new AppError(`${fieldName} must be a non-negative integer`, 400);
-  }
-  return parsed;
-};
-
-const normalizeMealTime = (value) => {
-  const normalized = String(value || "")
-    .trim()
-    .toUpperCase();
-
-  if (!ALLOWED_MEAL_TIMES.includes(normalized)) {
-    throw new AppError("Invalid mealTime", 400);
-  }
-
-  return normalized;
-};
 
 const sanitizeOptionalString = (value, fieldName, maxLength = 1000) => {
   if (value === undefined) return undefined;
@@ -66,6 +30,21 @@ const sanitizeOptionalString = (value, fieldName, maxLength = 1000) => {
   }
 
   return parsed;
+};
+
+const parseDateOnly = (value, fieldName) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new AppError(`Invalid ${fieldName}`, 400);
+  }
+  return new Date(parsed.toISOString().slice(0, 10));
+};
+
+const parseOptionalBoolean = (value, defaultValue = false) => {
+  if (value === undefined) return defaultValue;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
 };
 
 const normalizePlanStatus = (value, fallback = "DRAFT") => {
@@ -85,22 +64,72 @@ const ensureDateRange = (startDate, endDate) => {
   }
 };
 
-const toDateKey = (date) => date.toISOString().slice(0, 10);
-
 const addDays = (date, days) => {
   const copy = new Date(date);
-  copy.setUTCDate(copy.getUTCDate() + days);
+  copy.setUTCDate(copy.getUTCDate() + Number(days));
   return copy;
 };
 
-const dateInRangeInclusive = (date, startDate, endDate) => {
-  const dateTs = date.getTime();
-  return dateTs >= startDate.getTime() && dateTs <= endDate.getTime();
+const ensurePlanAccess = (access, trainerId, message = "Forbidden") => {
+  if (!access.isPrivileged) {
+    ensureSameUserOrPrivileged(access, trainerId, message);
+  }
 };
 
-const ensureUserExists = async (userId, label) => {
+const resolveTrainerScopeId = (req, access) => {
+  const fromParams = req.params?.trainerId;
+  const fromQuery = req.query?.trainerId;
+  const fromUserTrainerId = req.user?.trainerId;
+  const fallbackUserId = access.userId;
+
+  const resolved =
+    fromParams || fromQuery || fromUserTrainerId || fallbackUserId;
+  if (!resolved) {
+    throw new AppError("trainerId is required", 400);
+  }
+
+  ensurePlanAccess(
+    access,
+    resolved,
+    "Forbidden: you can only view your own trainer plans",
+  );
+
+  return String(resolved);
+};
+
+const resolveClientProfile = async ({ clientProfileId, clientId }) => {
+  if (clientProfileId) {
+    const profile = await prisma.clientProfile.findUnique({
+      where: { id: String(clientProfileId) },
+      select: { id: true, clientId: true },
+    });
+
+    if (!profile) {
+      throw new AppError("Client profile not found", 404);
+    }
+
+    return profile;
+  }
+
+  if (clientId) {
+    const profile = await prisma.clientProfile.findUnique({
+      where: { clientId: String(clientId) },
+      select: { id: true, clientId: true },
+    });
+
+    if (!profile) {
+      throw new AppError("Client profile not found", 404);
+    }
+
+    return profile;
+  }
+
+  throw new AppError("clientProfileId or clientId is required", 400);
+};
+
+const ensureUserExists = async (userId, label = "User") => {
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: { id: String(userId) },
     select: { id: true },
   });
 
@@ -110,294 +139,135 @@ const ensureUserExists = async (userId, label) => {
 };
 
 const ensureTrainerClientRelationship = async (trainerId, clientId) => {
-  const relation = await prisma.trainerClient.findUnique({
+  const link = await prisma.trainerClient.findUnique({
     where: {
       trainerId_clientId: {
-        trainerId,
-        clientId,
+        trainerId: String(trainerId),
+        clientId: String(clientId),
       },
     },
-    select: {
-      status: true,
-    },
+    select: { id: true },
   });
 
-  if (!relation || relation.status !== "ACTIVE") {
-    throw new AppError("Trainer-client relationship must be ACTIVE", 409);
+  if (!link) {
+    throw new AppError("Trainer-client relationship not found", 404);
   }
 };
 
-const ensureFoodIdsAndPortionPairs = async (allItems) => {
-  const foodIds = Array.from(new Set(allItems.map((item) => item.foodId)));
+const ensureSourceTemplate = async (templateId, trainerId, access) => {
+  if (!templateId) return null;
 
-  const foods = await prisma.food.findMany({
-    where: {
-      id: {
-        in: foodIds,
-      },
-      isArchived: false,
-    },
+  const template = await prisma.mealTemplate.findUnique({
+    where: { id: String(templateId) },
     select: {
       id: true,
-      name: true,
-      baseGrams: true,
-      calories: true,
-      protein: true,
-      carbs: true,
-      fat: true,
-    },
-  });
-
-  const foodById = new Map(foods.map((food) => [food.id, food]));
-  if (foodById.size !== foodIds.length) {
-    throw new AppError("One or more foods are missing or archived", 400);
-  }
-
-  const portionPairs = allItems.map((item) => ({
-    id: item.portionId,
-    foodId: item.foodId,
-  }));
-
-  const portions = await prisma.foodPortion.findMany({
-    where: {
-      OR: portionPairs,
-    },
-    select: {
-      id: true,
-      foodId: true,
-      label: true,
-      grams: true,
-    },
-  });
-
-  const portionKey = (portionId, foodId) => `${portionId}:${foodId}`;
-  const portionByPair = new Map(
-    portions.map((portion) => [
-      portionKey(portion.id, portion.foodId),
-      portion,
-    ]),
-  );
-
-  for (const item of allItems) {
-    const key = portionKey(item.portionId, item.foodId);
-    if (!portionByPair.has(key)) {
-      throw new AppError(
-        "Invalid portion: portion does not belong to the selected food",
-        400,
-      );
-    }
-  }
-
-  return {
-    foodById,
-    portionByPair,
-  };
-};
-
-const parseManualDays = (days, startDate, endDate) => {
-  if (!Array.isArray(days) || days.length === 0) {
-    throw new AppError("days must be a non-empty array", 400);
-  }
-
-  const dayIndexSet = new Set();
-  const dateSet = new Set();
-
-  const parsedDays = days.map((day, index) => {
-    if (!day || typeof day !== "object") {
-      throw new AppError(`days[${index}] must be an object`, 400);
-    }
-
-    const dayIndex = parseNonNegativeInteger(
-      day.dayIndex,
-      `days[${index}].dayIndex`,
-    );
-    if (dayIndexSet.has(dayIndex)) {
-      throw new AppError("Duplicate dayIndex in meal plan days", 400);
-    }
-    dayIndexSet.add(dayIndex);
-
-    const date = parseDateOnly(day.date, `days[${index}].date`);
-    if (!dateInRangeInclusive(date, startDate, endDate)) {
-      throw new AppError(
-        "Meal plan day date must be inside the plan range",
-        400,
-      );
-    }
-
-    const dateKey = toDateKey(date);
-    if (dateSet.has(dateKey)) {
-      throw new AppError("Duplicate date in meal plan days", 400);
-    }
-    dateSet.add(dateKey);
-
-    if (!Array.isArray(day.items) || day.items.length === 0) {
-      throw new AppError(`days[${index}].items must be a non-empty array`, 400);
-    }
-
-    const slotSet = new Set();
-    const items = day.items.map((item, itemIndex) => {
-      if (!item || typeof item !== "object") {
-        throw new AppError(
-          `days[${index}].items[${itemIndex}] must be an object`,
-          400,
-        );
-      }
-
-      if (!item.foodId || !item.portionId) {
-        throw new AppError(
-          `days[${index}].items[${itemIndex}] foodId and portionId are required`,
-          400,
-        );
-      }
-
-      const mealTime = normalizeMealTime(item.mealTime);
-      const sortOrder = parseNonNegativeInteger(
-        item.sortOrder ?? 0,
-        `days[${index}].items[${itemIndex}].sortOrder`,
-      );
-
-      const slotKey = `${mealTime}:${sortOrder}`;
-      if (slotSet.has(slotKey)) {
-        throw new AppError(
-          `Duplicate meal slot ${slotKey} within dayIndex ${dayIndex}`,
-          400,
-        );
-      }
-      slotSet.add(slotKey);
-
-      return {
-        foodId: String(item.foodId),
-        portionId: String(item.portionId),
-        quantity: parsePositiveNumber(
-          item.quantity ?? 1,
-          `days[${index}].items[${itemIndex}].quantity`,
-        ),
-        mealTime,
-        sortOrder,
-      };
-    });
-
-    return {
-      dayIndex,
-      date,
-      items,
-    };
-  });
-
-  return parsedDays;
-};
-
-const findDuplicatePlan = async ({
-  trainerId,
-  clientId,
-  startDate,
-  endDate,
-  sourceMealTemplateId,
-  title,
-}) => {
-  const duplicate = await prisma.mealPlan.findFirst({
-    where: {
-      trainerId,
-      clientId,
-      startDate,
-      endDate,
-      sourceMealTemplateId: sourceMealTemplateId ?? null,
-      title: title ?? null,
-      status: {
-        in: ["DRAFT", "ACTIVE"],
-      },
-    },
-    select: {
-      id: true,
-      createdAt: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
-
-  return duplicate;
-};
-
-const buildSnapshotItem = (item, foodById, portionByPair) => {
-  const food = foodById.get(item.foodId);
-  const portion = portionByPair.get(`${item.portionId}:${item.foodId}`);
-
-  return {
-    foodId: item.foodId,
-    portionId: item.portionId,
-    quantity: item.quantity,
-    mealTime: item.mealTime,
-    sortOrder: item.sortOrder,
-    foodNameSnapshot: food.name,
-    portionLabelSnapshot: portion.label,
-    gramsPerPortion: portion.grams,
-    baseGramsSnapshot: food.baseGrams,
-    caloriesSnapshot: food.calories,
-    proteinSnapshot: food.protein,
-    carbsSnapshot: food.carbs,
-    fatSnapshot: food.fat,
-  };
-};
-
-const getPlanByIdWithRelations = async (id) => {
-  return prisma.mealPlan.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      sourceMealTemplateId: true,
       trainerId: true,
-      clientId: true,
-      status: true,
+      isPublic: true,
+      isArchived: true,
+    },
+  });
+
+  if (!template) {
+    throw new AppError("Source meal template not found", 404);
+  }
+
+  if (template.isArchived) {
+    throw new AppError("Source meal template is archived", 409);
+  }
+
+  const sameTrainer = String(template.trainerId) === String(trainerId);
+  if (!sameTrainer && !template.isPublic && !access.isPrivileged) {
+    throw new AppError("Forbidden: source template not accessible", 403);
+  }
+
+  return template.id;
+};
+
+const PLAN_LIST_SELECT = {
+  id: true,
+  sourceMealTemplateId: true,
+  clientProfileId: true,
+  trainerId: true,
+  status: true,
+  totalCount: true,
+  completedCount: true,
+  percentage: true,
+  title: true,
+  notes: true,
+  startDate: true,
+  endDate: true,
+  createdAt: true,
+  updatedAt: true,
+  sourceTemplate: {
+    select: {
+      id: true,
       title: true,
-      notes: true,
-      startDate: true,
-      endDate: true,
-      generatedAt: true,
+    },
+  },
+  clientProfile: {
+    select: {
+      id: true,
+      clientId: true,
+      targetCalories: true,
+      targetProtein: true,
+      targetCarbs: true,
+      targetFat: true,
+    },
+  },
+};
+
+const PLAN_DETAILS_SELECT = {
+  ...PLAN_LIST_SELECT,
+  days: {
+    orderBy: {
+      dayIndex: "asc",
+    },
+    select: {
+      id: true,
+      mealPlanId: true,
+      dayIndex: true,
+      date: true,
+      completedCount: true,
+      totalCount: true,
+      percentage: true,
       createdAt: true,
-      updatedAt: true,
-      days: {
-        orderBy: {
-          dayIndex: "asc",
-        },
+      items: {
+        orderBy: [{ mealTime: "asc" }, { sortOrder: "asc" }],
         select: {
           id: true,
-          dayIndex: true,
-          date: true,
-          items: {
-            orderBy: [{ mealTime: "asc" }, { sortOrder: "asc" }],
+          mealPlanDayId: true,
+          foodId: true,
+          food: {
             select: {
               id: true,
-              foodId: true,
-              portionId: true,
-              quantity: true,
-              mealTime: true,
-              sortOrder: true,
-              foodNameSnapshot: true,
-              portionLabelSnapshot: true,
-              gramsPerPortion: true,
-              baseGramsSnapshot: true,
-              caloriesSnapshot: true,
-              proteinSnapshot: true,
-              carbsSnapshot: true,
-              fatSnapshot: true,
+              name: true,
+            },
+          },
+          portionId: true,
+          quantity: true,
+          mealTime: true,
+          sortOrder: true,
+          foodNameSnapshot: true,
+          portionLabelSnapshot: true,
+          gramsPerPortion: true,
+          caloriesSnapshot: true,
+          proteinSnapshot: true,
+          carbsSnapshot: true,
+          fatSnapshot: true,
+          createdAt: true,
+          updatedAt: true,
+          completion: {
+            select: {
+              id: true,
+              completedAt: true,
+              note: true,
+              clientId: true,
             },
           },
         },
       },
     },
-  });
-};
-
-const ensureCanViewPlan = (access, plan) => {
-  if (access.isPrivileged) return;
-
-  const isTrainerOwner = String(access.userId) === String(plan.trainerId);
-  const isClientOwner = String(access.userId) === String(plan.clientId);
-
-  if (!isTrainerOwner && !isClientOwner) {
-    throw new AppError("Forbidden", 403);
-  }
+  },
 };
 
 export const createMealPlan = async (req, res, next) => {
@@ -406,11 +276,6 @@ export const createMealPlan = async (req, res, next) => {
     ensureHasAnyRole(access, ["TRAINER"], "Forbidden: trainer role required");
 
     const trainerId = req.body.trainerId || access.userId;
-    const clientId = String(req.body.clientId || "").trim();
-    if (!clientId) {
-      return next(new AppError("clientId is required", 400));
-    }
-
     ensureSameUserOrPrivileged(
       access,
       trainerId,
@@ -418,91 +283,48 @@ export const createMealPlan = async (req, res, next) => {
     );
 
     await ensureUserExists(trainerId, "Trainer user");
-    await ensureUserExists(clientId, "Client user");
-    await ensureTrainerClientRelationship(trainerId, clientId);
+
+    const profile = await resolveClientProfile({
+      clientProfileId: req.body.clientProfileId,
+      clientId: req.body.clientId,
+    });
+
+    await ensureUserExists(profile.clientId, "Client user");
+    await ensureTrainerClientRelationship(trainerId, profile.clientId);
 
     const startDate = parseDateOnly(req.body.startDate, "startDate");
     const endDate = parseDateOnly(req.body.endDate, "endDate");
     ensureDateRange(startDate, endDate);
 
-    const sourceMealTemplateId = req.body.sourceMealTemplateId || null;
+    const sourceMealTemplateId = await ensureSourceTemplate(
+      req.body.sourceMealTemplateId || null,
+      trainerId,
+      access,
+    );
+
     const title = sanitizeOptionalString(req.body.title, "title", 200);
     const notes = sanitizeOptionalString(req.body.notes, "notes", 4000);
     const status = normalizePlanStatus(req.body.status, "DRAFT");
-    const parsedDays = parseManualDays(req.body.days, startDate, endDate);
 
-    const duplicate = await findDuplicatePlan({
-      trainerId,
-      clientId,
-      startDate,
-      endDate,
-      sourceMealTemplateId,
-      title,
+    const created = await prisma.mealPlan.create({
+      data: {
+        sourceMealTemplateId,
+        trainerId,
+        clientProfileId: profile.id,
+        status,
+        title,
+        notes,
+        startDate,
+        endDate,
+      },
+      select: PLAN_LIST_SELECT,
     });
-
-    if (duplicate) {
-      const existing = await getPlanByIdWithRelations(duplicate.id);
-      return res.status(200).json({
-        success: true,
-        idempotent: true,
-        data: existing,
-      });
-    }
-
-    const allItems = parsedDays.flatMap((day) => day.items);
-    const { foodById, portionByPair } =
-      await ensureFoodIdsAndPortionPairs(allItems);
-
-    const created = await prisma.$transaction(async (tx) => {
-      const plan = await tx.mealPlan.create({
-        data: {
-          sourceMealTemplateId,
-          trainerId,
-          clientId,
-          status,
-          title,
-          notes,
-          startDate,
-          endDate,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      for (const day of parsedDays) {
-        const createdDay = await tx.mealPlanDay.create({
-          data: {
-            mealPlanId: plan.id,
-            dayIndex: day.dayIndex,
-            date: day.date,
-          },
-          select: { id: true },
-        });
-
-        if (day.items.length > 0) {
-          await tx.mealPlanItem.createMany({
-            data: day.items.map((item) => ({
-              mealPlanDayId: createdDay.id,
-              ...buildSnapshotItem(item, foodById, portionByPair),
-            })),
-          });
-        }
-      }
-
-      return plan.id;
-    });
-
-    const payload = await getPlanByIdWithRelations(created);
 
     return res.status(201).json({
       success: true,
-      data: payload,
+      data: created,
     });
   } catch (error) {
-    if (error?.code === "P2002") {
-      return next(new AppError("Duplicate day or meal slot detected", 409));
-    }
     return next(error);
   }
 };
@@ -512,26 +334,44 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
     const access = await getUserAccessContext(req);
     ensureHasAnyRole(access, ["TRAINER"], "Forbidden: trainer role required");
 
-    const templateId = String(req.body.templateId || "").trim();
-    const clientId = String(req.body.clientId || "").trim();
-    if (!templateId || !clientId) {
-      return next(new AppError("templateId and clientId are required", 400));
+    const trainerId = req.body.trainerId || access.userId;
+    ensureSameUserOrPrivileged(
+      access,
+      trainerId,
+      "Forbidden: trainerId must match authenticated trainer",
+    );
+
+    await ensureUserExists(trainerId, "Trainer user");
+
+    const templateId =
+      req.params.templateId ||
+      req.body.templateId ||
+      req.body.sourceMealTemplateId;
+    if (!templateId) {
+      return next(new AppError("templateId is required", 400));
     }
 
-    const startDate = parseDateOnly(req.body.startDate, "startDate");
-    const endDate = parseDateOnly(req.body.endDate, "endDate");
-    ensureDateRange(startDate, endDate);
+    const profile = await resolveClientProfile({
+      clientProfileId: req.body.clientProfileId,
+      clientId: req.body.clientId,
+    });
 
-    const title = sanitizeOptionalString(req.body.title, "title", 200);
-    const notes = sanitizeOptionalString(req.body.notes, "notes", 4000);
-    const status = normalizePlanStatus(req.body.status, "DRAFT");
+    await ensureUserExists(profile.clientId, "Client user");
+    await ensureTrainerClientRelationship(trainerId, profile.clientId);
+
+    const startDate = parseDateOnly(req.body.startDate, "startDate");
+
+    const sourceMealTemplateId = await ensureSourceTemplate(
+      templateId,
+      trainerId,
+      access,
+    );
 
     const template = await prisma.mealTemplate.findUnique({
-      where: { id: templateId },
+      where: { id: String(sourceMealTemplateId) },
       select: {
         id: true,
-        trainerId: true,
-        isArchived: true,
+        title: true,
         days: {
           orderBy: {
             dayIndex: "asc",
@@ -546,6 +386,25 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
                 quantity: true,
                 mealTime: true,
                 sortOrder: true,
+                food: {
+                  select: {
+                    id: true,
+                    name: true,
+                    baseGrams: true,
+                    calories: true,
+                    protein: true,
+                    carbs: true,
+                    fat: true,
+                    isArchived: true,
+                  },
+                },
+                portion: {
+                  select: {
+                    id: true,
+                    label: true,
+                    grams: true,
+                  },
+                },
               },
             },
           },
@@ -557,65 +416,37 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
       return next(new AppError("Meal template not found", 404));
     }
 
-    if (template.isArchived) {
+    if (template.days.length === 0) {
+      return next(new AppError("Meal template has no days", 400));
+    }
+
+    const maxDayIndex = Math.max(...template.days.map((day) => day.dayIndex));
+    const minRequiredEndDate = addDays(startDate, maxDayIndex);
+    const endDate = req.body.endDate
+      ? parseDateOnly(req.body.endDate, "endDate")
+      : minRequiredEndDate;
+
+    ensureDateRange(startDate, endDate);
+    if (endDate < minRequiredEndDate) {
       return next(
-        new AppError("Cannot generate plan from archived template", 409),
+        new AppError(
+          "endDate is too early for the template structure. Extend endDate.",
+          400,
+        ),
       );
     }
 
-    ensureSameUserOrPrivileged(
-      access,
-      template.trainerId,
-      "Forbidden: template does not belong to this trainer",
-    );
-
-    await ensureUserExists(clientId, "Client user");
-    await ensureTrainerClientRelationship(template.trainerId, clientId);
-
-    if (template.days.length === 0) {
-      return next(new AppError("Template has no days", 400));
-    }
-
-    for (const day of template.days) {
-      const dayDate = addDays(startDate, day.dayIndex);
-      if (!dateInRangeInclusive(dayDate, startDate, endDate)) {
-        return next(
-          new AppError(
-            "Date range is too short for template day indexes. Extend endDate.",
-            400,
-          ),
-        );
-      }
-    }
-
-    const duplicate = await findDuplicatePlan({
-      trainerId: template.trainerId,
-      clientId,
-      startDate,
-      endDate,
-      sourceMealTemplateId: template.id,
-      title,
-    });
-
-    if (duplicate) {
-      const existing = await getPlanByIdWithRelations(duplicate.id);
-      return res.status(200).json({
-        success: true,
-        idempotent: true,
-        data: existing,
-      });
-    }
-
-    const allItems = template.days.flatMap((day) => day.items);
-    const { foodById, portionByPair } =
-      await ensureFoodIdsAndPortionPairs(allItems);
+    const title =
+      sanitizeOptionalString(req.body.title, "title", 200) ?? template.title;
+    const notes = sanitizeOptionalString(req.body.notes, "notes", 4000);
+    const status = normalizePlanStatus(req.body.status, "DRAFT");
 
     const createdPlanId = await prisma.$transaction(async (tx) => {
-      const plan = await tx.mealPlan.create({
+      const createdPlan = await tx.mealPlan.create({
         data: {
-          sourceMealTemplateId: template.id,
-          trainerId: template.trainerId,
-          clientId,
+          sourceMealTemplateId,
+          trainerId,
+          clientProfileId: profile.id,
           status,
           title,
           notes,
@@ -628,13 +459,15 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
       });
 
       for (const day of template.days) {
-        const plannedDate = addDays(startDate, day.dayIndex);
+        const planDate = addDays(startDate, day.dayIndex);
 
         const createdDay = await tx.mealPlanDay.create({
           data: {
-            mealPlanId: plan.id,
+            mealPlanId: createdPlan.id,
             dayIndex: day.dayIndex,
-            date: plannedDate,
+            date: planDate,
+            completedCount: 0,
+            totalCount: day.items.length,
           },
           select: {
             id: true,
@@ -643,22 +476,53 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
 
         if (day.items.length > 0) {
           await tx.mealPlanItem.createMany({
-            data: day.items.map((item) => ({
-              mealPlanDayId: createdDay.id,
-              ...buildSnapshotItem(item, foodById, portionByPair),
-            })),
+            data: day.items.map((item) => {
+              if (item.food?.isArchived) {
+                throw new AppError(
+                  "Template contains archived food items. Update template first.",
+                  409,
+                );
+              }
+
+              const qty = Number(item.quantity || 1);
+              const gramsPerPortion = Number(item.portion.grams || 0);
+              const baseGrams = Number(item.food.baseGrams || 100);
+              const factor =
+                baseGrams > 0 ? (gramsPerPortion / baseGrams) * qty : 0;
+
+              return {
+                mealPlanDayId: createdDay.id,
+                foodId: item.foodId,
+                portionId: item.portionId,
+                quantity: qty,
+                mealTime: item.mealTime,
+                sortOrder: item.sortOrder,
+                foodNameSnapshot: item.food.name,
+                portionLabelSnapshot: item.portion.label,
+                gramsPerPortion,
+                caloriesSnapshot: Number(item.food.calories) * factor,
+                proteinSnapshot: Number(item.food.protein) * factor,
+                carbsSnapshot: Number(item.food.carbs) * factor,
+                fatSnapshot: Number(item.food.fat) * factor,
+              };
+            }),
           });
         }
       }
 
-      return plan.id;
+      return createdPlan.id;
     });
 
-    const payload = await getPlanByIdWithRelations(createdPlanId);
+    await recalcMealPlanSummary(createdPlanId);
+
+    const created = await prisma.mealPlan.findUnique({
+      where: { id: createdPlanId },
+      select: PLAN_DETAILS_SELECT,
+    });
 
     return res.status(201).json({
       success: true,
-      data: payload,
+      data: created,
     });
   } catch (error) {
     if (error?.code === "P2002") {
@@ -668,65 +532,17 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
   }
 };
 
-export const getMealPlanById = async (req, res, next) => {
+export const getMealPlans = async (req, res, next) => {
   try {
     const access = await getUserAccessContext(req);
-
-    const { id } = req.params;
-    if (!id) {
-      return next(new AppError("Meal plan ID is required", 400));
-    }
-
-    const plan = await getPlanByIdWithRelations(id);
-    if (!plan) {
-      return next(new AppError("Meal plan not found", 404));
-    }
-
-    ensureCanViewPlan(access, plan);
-
-    return res.status(200).json({
-      success: true,
-      data: plan,
-    });
-  } catch (error) {
-    return next(error);
-  }
-};
-
-export const getClientMealPlans = async (req, res, next) => {
-  try {
-    const access = await getUserAccessContext(req);
-    const clientId = String(req.params.id || "").trim();
-    if (!clientId) {
-      return next(new AppError("Client ID is required", 400));
-    }
-
-    if (!access.isPrivileged && String(access.userId) !== clientId) {
-      ensureHasAnyRole(access, ["TRAINER"], "Forbidden");
-      const hasRelation = await prisma.trainerClient.findUnique({
-        where: {
-          trainerId_clientId: {
-            trainerId: access.userId,
-            clientId,
-          },
-        },
-        select: {
-          status: true,
-        },
-      });
-
-      if (!hasRelation || hasRelation.status !== "ACTIVE") {
-        return next(
-          new AppError(
-            "Forbidden: client is not assigned to this trainer",
-            403,
-          ),
-        );
-      }
-    }
+    ensureHasAnyRole(
+      access,
+      ["TRAINER", "ADMIN", "OWNER", "DEVELOPER"],
+      "Forbidden",
+    );
 
     const { page, limit, skip, sort, order } = pagination(req, {
-      defaultSort: "startDate",
+      defaultSort: "updatedAt",
       defaultOrder: "desc",
       defaultLimit: 20,
     });
@@ -735,21 +551,30 @@ export const getClientMealPlans = async (req, res, next) => {
       return next(new AppError("Invalid sort field", 400));
     }
 
-    const where = {
-      clientId,
-    };
+    const trainerScopeId = resolveTrainerScopeId(req, access);
 
-    if (
-      !access.isPrivileged &&
-      access.roles.includes("TRAINER") &&
-      access.userId !== clientId
-    ) {
-      where.trainerId = access.userId;
+    const where = {};
+    where.trainerId = trainerScopeId;
+
+    if (req.query.clientProfileId) {
+      where.clientProfileId = String(req.query.clientProfileId);
     }
 
     if (req.query.status) {
       where.status = normalizePlanStatus(req.query.status);
     }
+
+    if (req.query.startDate || req.query.endDate) {
+      where.startDate = {};
+      if (req.query.startDate) {
+        where.startDate.gte = parseDateOnly(req.query.startDate, "startDate");
+      }
+      if (req.query.endDate) {
+        where.startDate.lte = parseDateOnly(req.query.endDate, "endDate");
+      }
+    }
+
+    const includeDays = parseOptionalBoolean(req.query.includeDays, false);
 
     const [total, plans] = await prisma.$transaction([
       prisma.mealPlan.count({ where }),
@@ -760,32 +585,7 @@ export const getClientMealPlans = async (req, res, next) => {
         orderBy: {
           [sort]: order,
         },
-        select: {
-          id: true,
-          sourceMealTemplateId: true,
-          trainerId: true,
-          clientId: true,
-          status: true,
-          title: true,
-          notes: true,
-          startDate: true,
-          endDate: true,
-          generatedAt: true,
-          createdAt: true,
-          updatedAt: true,
-          days: {
-            select: {
-              id: true,
-              dayIndex: true,
-              date: true,
-              _count: {
-                select: {
-                  items: true,
-                },
-              },
-            },
-          },
-        },
+        select: includeDays ? PLAN_DETAILS_SELECT : PLAN_LIST_SELECT,
       }),
     ]);
 
@@ -800,6 +600,173 @@ export const getClientMealPlans = async (req, res, next) => {
         sort,
         order,
       },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getMealPlanById = async (req, res, next) => {
+  try {
+    const access = await getUserAccessContext(req);
+    ensureHasAnyRole(
+      access,
+      ["TRAINER", "ADMIN", "OWNER", "DEVELOPER"],
+      "Forbidden",
+    );
+
+    const planId = req.params.planId || req.params.id;
+    if (!planId) {
+      return next(new AppError("Meal plan ID is required", 400));
+    }
+
+    const plan = await prisma.mealPlan.findUnique({
+      where: {
+        id: String(planId),
+      },
+      select: PLAN_DETAILS_SELECT,
+    });
+
+    if (!plan) {
+      return next(new AppError("Meal plan not found", 404));
+    }
+
+    ensurePlanAccess(
+      access,
+      plan.trainerId,
+      "Forbidden: you can only view your own trainer plans",
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: plan,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const updateMealPlanById = async (req, res, next) => {
+  try {
+    const access = await getUserAccessContext(req);
+    ensureHasAnyRole(access, ["TRAINER"], "Forbidden: trainer role required");
+
+    const planId = req.params.planId || req.params.id;
+    if (!planId) {
+      return next(new AppError("Meal plan ID is required", 400));
+    }
+
+    const existing = await prisma.mealPlan.findUnique({
+      where: { id: String(planId) },
+      select: {
+        id: true,
+        trainerId: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+
+    if (!existing) {
+      return next(new AppError("Meal plan not found", 404));
+    }
+
+    ensurePlanAccess(
+      access,
+      existing.trainerId,
+      "Forbidden: plan does not belong to this trainer",
+    );
+
+    const data = {};
+
+    if (req.body.title !== undefined) {
+      data.title = sanitizeOptionalString(req.body.title, "title", 200);
+    }
+
+    if (req.body.notes !== undefined) {
+      data.notes = sanitizeOptionalString(req.body.notes, "notes", 4000);
+    }
+
+    if (req.body.status !== undefined) {
+      data.status = normalizePlanStatus(req.body.status);
+    }
+
+    if (req.body.startDate !== undefined) {
+      data.startDate = parseDateOnly(req.body.startDate, "startDate");
+    }
+
+    if (req.body.endDate !== undefined) {
+      data.endDate = parseDateOnly(req.body.endDate, "endDate");
+    }
+
+    if (
+      req.body.sourceMealTemplateId !== undefined &&
+      req.body.sourceMealTemplateId !== null
+    ) {
+      data.sourceMealTemplateId = await ensureSourceTemplate(
+        req.body.sourceMealTemplateId,
+        existing.trainerId,
+        access,
+      );
+    }
+
+    if (req.body.sourceMealTemplateId === null) {
+      data.sourceMealTemplateId = null;
+    }
+
+    const nextStart = data.startDate || existing.startDate;
+    const nextEnd = data.endDate || existing.endDate;
+    ensureDateRange(nextStart, nextEnd);
+
+    const updated = await prisma.mealPlan.update({
+      where: { id: existing.id },
+      data,
+      select: PLAN_LIST_SELECT,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: updated,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const deleteMealPlanById = async (req, res, next) => {
+  try {
+    const access = await getUserAccessContext(req);
+    ensureHasAnyRole(access, ["TRAINER"], "Forbidden: trainer role required");
+
+    const planId = req.params.planId || req.params.id;
+    if (!planId) {
+      return next(new AppError("Meal plan ID is required", 400));
+    }
+
+    const plan = await prisma.mealPlan.findUnique({
+      where: { id: String(planId) },
+      select: {
+        id: true,
+        trainerId: true,
+      },
+    });
+
+    if (!plan) {
+      return next(new AppError("Meal plan not found", 404));
+    }
+
+    ensurePlanAccess(
+      access,
+      plan.trainerId,
+      "Forbidden: plan does not belong to this trainer",
+    );
+
+    await prisma.mealPlan.delete({
+      where: { id: plan.id },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Meal plan deleted",
     });
   } catch (error) {
     return next(error);

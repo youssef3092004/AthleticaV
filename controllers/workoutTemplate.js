@@ -53,17 +53,6 @@ const buildListWhere = (req) => {
   const trainerId = req.params.trainerId || req.query.trainerId;
   const queryLevel = normalizeLevel(req.query.level);
 
-  if (!trainerId) {
-    throw new AppError("trainerId is required", 400);
-  }
-
-  if (!canManageAnyWorkoutTemplate(req.user)) {
-    throw new AppError(
-      "Forbidden: trainerId query parameter is required for non-privileged users",
-      403,
-    );
-  }
-
   const where = {};
 
   if (!canManageAnyWorkoutTemplate(req.user)) {
@@ -80,6 +69,57 @@ const buildListWhere = (req) => {
   }
 
   return where;
+};
+
+const WORKOUT_TEMPLATE_BASE_SELECT = {
+  id: true,
+  trainerId: true,
+  title: true,
+  level: true,
+  createdAt: true,
+};
+
+const WORKOUT_TEMPLATE_DETAILS_SELECT = {
+  ...WORKOUT_TEMPLATE_BASE_SELECT,
+  days: {
+    orderBy: {
+      dayIndex: "asc",
+    },
+    select: {
+      id: true,
+      workoutTemplateId: true,
+      dayIndex: true,
+      label: true,
+      createdAt: true,
+      items: {
+        orderBy: {
+          order: "asc",
+        },
+        select: {
+          id: true,
+          workoutTemplateDayId: true,
+          exerciseId: true,
+          order: true,
+          sets: true,
+          reps: true,
+          restSeconds: true,
+          notes: true,
+          tempo: true,
+          rir: true,
+          rpe: true,
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              category: true,
+              videoUrl: true,
+              instructions: true,
+            },
+          },
+        },
+      },
+    },
+  },
 };
 
 export const createWorkoutTemplate = async (req, res, next) => {
@@ -112,13 +152,7 @@ export const createWorkoutTemplate = async (req, res, next) => {
         title: String(title).trim(),
         level: normalizedLevel,
       },
-      select: {
-        id: true,
-        trainerId: true,
-        title: true,
-        level: true,
-        createdAt: true,
-      },
+      select: WORKOUT_TEMPLATE_BASE_SELECT,
     });
 
     invalidateCacheByTags(buildResourceTags("workout_templates", created.id));
@@ -155,13 +189,7 @@ export const getWorkoutTemplateById = async (req, res, next) => {
 
     const template = await prisma.workoutTemplate.findUnique({
       where: { id },
-      select: {
-        id: true,
-        trainerId: true,
-        title: true,
-        level: true,
-        createdAt: true,
-      },
+      select: WORKOUT_TEMPLATE_DETAILS_SELECT,
     });
 
     if (!template) {
@@ -215,13 +243,7 @@ export const getAllWorkoutTemplates = async (req, res, next) => {
         orderBy: {
           [sort]: order,
         },
-        select: {
-          id: true,
-          trainerId: true,
-          title: true,
-          level: true,
-          createdAt: true,
-        },
+        select: WORKOUT_TEMPLATE_BASE_SELECT,
       }),
     ]);
 
@@ -321,13 +343,7 @@ export const updateWorkoutTemplateByIdPatch = async (req, res, next) => {
     const updated = await prisma.workoutTemplate.update({
       where: { id },
       data: updateData,
-      select: {
-        id: true,
-        trainerId: true,
-        title: true,
-        level: true,
-        createdAt: true,
-      },
+      select: WORKOUT_TEMPLATE_BASE_SELECT,
     });
 
     invalidateCacheByTags(buildResourceTags("workout_templates", id));

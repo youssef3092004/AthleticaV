@@ -75,6 +75,46 @@ const sanitizePortions = (portions) => {
   });
 };
 
+export const createFoodCategory = async (req, res, next) => {
+  try {
+    const name = sanitizeRequiredString(req.body.name, "name", 100);
+
+    const created = await prisma.foodCategory.create({
+      data: { name },
+      select: { id: true, name: true },
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: created,
+    });
+  } catch (error) {
+    if (error?.code === "P2002") {
+      return next(new AppError("Food category already exists", 409));
+    }
+    return next(error);
+  }
+};
+
+export const getFoodCategories = async (req, res, next) => {
+  try {
+    const categories = await prisma.foodCategory.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: categories,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const getFoods = async (req, res, next) => {
   try {
     const { page, limit, skip, sort, order } = pagination(req, {
@@ -115,6 +155,13 @@ export const getFoods = async (req, res, next) => {
         },
         select: {
           id: true,
+          categoryId: true,
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           name: true,
           baseGrams: true,
           calories: true,
@@ -154,8 +201,17 @@ export const createFood = async (req, res, next) => {
       "Forbidden: only admins can create food items",
     );
 
+    const categoryId = sanitizeRequiredString(
+      req.body.categoryId,
+      "categoryId",
+      100,
+    );
     const name = sanitizeRequiredString(req.body.name, "name", 200);
-    const baseGrams = parsePositiveNumber(req.body.baseGrams, "baseGrams");
+    const baseGrams =
+      req.body.baseGrams === undefined ? 100 : Number(req.body.baseGrams);
+    if (baseGrams !== 100) {
+      return next(new AppError("baseGrams must always be 100", 400));
+    }
     const calories = parseNonNegativeNumber(req.body.calories, "calories");
     const protein = parseNonNegativeNumber(req.body.protein, "protein");
     const carbs = parseNonNegativeNumber(req.body.carbs, "carbs");
@@ -163,8 +219,18 @@ export const createFood = async (req, res, next) => {
     const portions = sanitizePortions(req.body.portions);
 
     const created = await prisma.$transaction(async (tx) => {
+      const category = await tx.foodCategory.findUnique({
+        where: { id: categoryId },
+        select: { id: true },
+      });
+
+      if (!category) {
+        throw new AppError("Food category not found", 404);
+      }
+
       const food = await tx.food.create({
         data: {
+          categoryId,
           name,
           baseGrams,
           calories,
@@ -174,6 +240,13 @@ export const createFood = async (req, res, next) => {
         },
         select: {
           id: true,
+          categoryId: true,
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           name: true,
           baseGrams: true,
           calories: true,
@@ -200,6 +273,13 @@ export const createFood = async (req, res, next) => {
         where: { id: food.id },
         select: {
           id: true,
+          categoryId: true,
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           name: true,
           baseGrams: true,
           calories: true,
@@ -248,6 +328,13 @@ export const getFoodPortions = async (req, res, next) => {
       where: { id },
       select: {
         id: true,
+        categoryId: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         name: true,
         baseGrams: true,
         isArchived: true,
@@ -271,6 +358,48 @@ export const getFoodPortions = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       data: food,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getFoodByCategoryId = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return next(new AppError("Food category ID is required", 400));
+    }
+
+    const foods = await prisma.food.findMany({
+      where: { categoryId: id, isArchived: false },
+      select: {
+        id: true,
+        categoryId: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        name: true,
+        baseGrams: true,
+        calories: true,
+        protein: true,
+        carbs: true,
+        fat: true,
+        isArchived: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: {
+        name: "asc",
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: foods,
     });
   } catch (error) {
     return next(error);

@@ -47,7 +47,8 @@ const ensureOwnOrPrivileged = (req, trainerId, clientId) => {
 
 export const createTrainerClient = async (req, res, next) => {
   try {
-    const { trainerId, clientId, status, startedAt } = req.body;
+    const { trainerId, clientId, status, startedAt, monthlyPrice, notes } =
+      req.body;
 
     if (!trainerId || !clientId) {
       return next(new AppError("Trainer ID and client ID are required", 400));
@@ -88,6 +89,14 @@ export const createTrainerClient = async (req, res, next) => {
         trainerId,
         clientId,
         status: normalizedStatus,
+        monthlyPrice:
+          monthlyPrice === undefined || monthlyPrice === null
+            ? null
+            : Number(monthlyPrice),
+        notes:
+          notes === undefined || notes === null || String(notes).trim() === ""
+            ? null
+            : String(notes).trim(),
         startedAt: startedAt ? new Date(startedAt) : new Date(),
       },
     });

@@ -8,12 +8,13 @@ import {
   makeCacheKey,
   setCache,
 } from "../utils/cache.js";
+import { recalcWorkoutDayAndSummary } from "../utils/workoutProgress.js";
 
 const ALLOWED_SORT_FIELDS = [
   "id",
   "exerciseId",
   "order",
-  "workoutId",
+  "workoutDayId",
   "sets",
   "reps",
   "restSeconds",
@@ -101,7 +102,7 @@ const parseOptionalRpe = (value) => {
 
 const ensureWorkoutExists = async (id) => {
   const workout = await prisma.workout.findUnique({
-    where: { id },
+    where: { id: String(id) },
     select: {
       id: true,
       trainerId: true,
@@ -116,13 +117,38 @@ const ensureWorkoutExists = async (id) => {
   return workout;
 };
 
+const ensureWorkoutDayExists = async (id) => {
+  const day = await prisma.workoutDay.findUnique({
+    where: { id: String(id) },
+    select: {
+      id: true,
+      dayIndex: true,
+      date: true,
+      title: true,
+      workoutId: true,
+      workout: {
+        select: {
+          trainerId: true,
+          clientId: true,
+        },
+      },
+    },
+  });
+
+  if (!day) {
+    throw new AppError("Workout day not found", 404);
+  }
+
+  return day;
+};
+
 const ensureExerciseExists = async (id) => {
   if (!id) {
     throw new AppError("exerciseId is required", 400);
   }
 
   const exercise = await prisma.exercise.findUnique({
-    where: { id },
+    where: { id: String(id) },
     select: {
       id: true,
       name: true,
@@ -139,20 +165,86 @@ const ensureExerciseExists = async (id) => {
   return exercise;
 };
 
+const ITEM_SELECT = {
+  id: true,
+  workoutDayId: true,
+  exerciseId: true,
+  order: true,
+  sets: true,
+  reps: true,
+  restSeconds: true,
+  notes: true,
+  tempo: true,
+  rir: true,
+  rpe: true,
+  exercise: {
+    select: {
+      id: true,
+      name: true,
+      category: true,
+      videoUrl: true,
+      instructions: true,
+    },
+  },
+  day: {
+    select: {
+      id: true,
+      workoutId: true,
+      dayIndex: true,
+      date: true,
+      title: true,
+      workout: {
+        select: {
+          trainerId: true,
+          clientId: true,
+        },
+      },
+    },
+  },
+};
+
+const toResponseItem = (item) => ({
+  id: item.id,
+  workoutId: item.day.workoutId,
+  workoutDayId: item.workoutDayId,
+  exerciseId: item.exerciseId,
+  order: item.order,
+  sets: item.sets,
+  reps: item.reps,
+  restSeconds: item.restSeconds,
+  notes: item.notes,
+  tempo: item.tempo,
+  rir: item.rir,
+  rpe: item.rpe,
+  exercise: item.exercise,
+  day: {
+    id: item.day.id,
+    dayIndex: item.day.dayIndex,
+    date: item.day.date,
+    title: item.day.title,
+  },
+});
+
 const buildListWhere = (req) => {
   const requesterId = getUserId(req);
   const where = {};
 
-  if (req.query.workoutId) {
-    where.workoutId = String(req.query.workoutId);
+  if (req.query.workoutDayId) {
+    where.workoutDayId = String(req.query.workoutDayId);
   }
 
   if (req.query.exerciseId) {
     where.exerciseId = String(req.query.exerciseId);
   }
 
+  const dayFilter = {};
+
+  if (req.query.workoutId) {
+    dayFilter.workoutId = String(req.query.workoutId);
+  }
+
   if (!canManageAnyWorkoutItem(req.user)) {
-    where.workout = {
+    dayFilter.workout = {
       OR: [{ trainerId: requesterId }, { clientId: requesterId }],
     };
   } else {
@@ -163,10 +255,13 @@ const buildListWhere = (req) => {
     if (req.query.clientId) {
       workoutFilter.clientId = String(req.query.clientId);
     }
-
     if (Object.keys(workoutFilter).length > 0) {
-      where.workout = workoutFilter;
+      dayFilter.workout = workoutFilter;
     }
+  }
+
+  if (Object.keys(dayFilter).length > 0) {
+    where.day = dayFilter;
   }
 
   return where;
@@ -175,7 +270,7 @@ const buildListWhere = (req) => {
 export const createWorkoutItem = async (req, res, next) => {
   try {
     const {
-      workoutId,
+      workoutDayId,
       exerciseId,
       sets,
       reps,
@@ -187,20 +282,22 @@ export const createWorkoutItem = async (req, res, next) => {
       rpe,
     } = req.body;
 
-    if (!workoutId) {
-      return next(new AppError("Workout ID is required", 400));
+    if (!workoutDayId) {
+      return next(new AppError("workoutDayId is required", 400));
     }
 
-    const workout = await ensureWorkoutExists(workoutId);
+    const day = await ensureWorkoutDayExists(workoutDayId);
     await ensureExerciseExists(exerciseId);
 
-    if (!ensureOwnOrPrivileged(req, workout.trainerId, workout.clientId)) {
+    if (
+      !ensureOwnOrPrivileged(req, day.workout.trainerId, day.workout.clientId)
+    ) {
       return next(new AppError("Forbidden", 403));
     }
 
     const created = await prisma.workoutItem.create({
       data: {
-        workoutId,
+        workoutDayId: String(workoutDayId),
         exerciseId,
         order: parseNonNegativeInteger(order, "order"),
         sets: parsePositiveInteger(sets, "sets"),
@@ -211,41 +308,28 @@ export const createWorkoutItem = async (req, res, next) => {
         rir: parseOptionalRir(rir),
         rpe: parseOptionalRpe(rpe),
       },
-      select: {
-        id: true,
-        workoutId: true,
-        exerciseId: true,
-        order: true,
-        sets: true,
-        reps: true,
-        restSeconds: true,
-        notes: true,
-        tempo: true,
-        rir: true,
-        rpe: true,
-        exercise: {
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            videoUrl: true,
-            instructions: true,
-          },
-        },
-      },
+      select: ITEM_SELECT,
     });
+
+    await recalcWorkoutDayAndSummary(created.workoutDayId);
 
     invalidateCacheByTags([
       ...buildResourceTags("workout_items", created.id),
-      ...buildResourceTags("workouts", workoutId),
+      ...buildResourceTags("workout_days", created.workoutDayId),
+      ...buildResourceTags("workouts", created.day.workoutId),
     ]);
 
     return res.status(201).json({
       status: "success",
-      data: created,
+      data: toResponseItem(created),
       source: "database",
     });
   } catch (error) {
+    if (error?.code === "P2002") {
+      return next(
+        new AppError("order already exists in this workout day", 409),
+      );
+    }
     return next(error);
   }
 };
@@ -266,35 +350,8 @@ export const getWorkoutItemById = async (req, res, next) => {
     }
 
     const item = await prisma.workoutItem.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        workoutId: true,
-        exerciseId: true,
-        order: true,
-        sets: true,
-        reps: true,
-        restSeconds: true,
-        notes: true,
-        tempo: true,
-        rir: true,
-        rpe: true,
-        exercise: {
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            videoUrl: true,
-            instructions: true,
-          },
-        },
-        workout: {
-          select: {
-            trainerId: true,
-            clientId: true,
-          },
-        },
-      },
+      where: { id: String(id) },
+      select: ITEM_SELECT,
     });
 
     if (!item) {
@@ -302,26 +359,16 @@ export const getWorkoutItemById = async (req, res, next) => {
     }
 
     if (
-      !ensureOwnOrPrivileged(req, item.workout.trainerId, item.workout.clientId)
+      !ensureOwnOrPrivileged(
+        req,
+        item.day.workout.trainerId,
+        item.day.workout.clientId,
+      )
     ) {
       return next(new AppError("Forbidden", 403));
     }
 
-    const payload = {
-      id: item.id,
-      workoutId: item.workoutId,
-      exerciseId: item.exerciseId,
-      order: item.order,
-      sets: item.sets,
-      reps: item.reps,
-      restSeconds: item.restSeconds,
-      notes: item.notes,
-      tempo: item.tempo,
-      rir: item.rir,
-      rpe: item.rpe,
-      exercise: item.exercise,
-    };
-
+    const payload = toResponseItem(item);
     setCache(cacheKey, payload, buildResourceTags("workout_items", id));
 
     return res.status(200).json({
@@ -369,28 +416,7 @@ export const getAllWorkoutItems = async (req, res, next) => {
         orderBy: {
           [sort]: order,
         },
-        select: {
-          id: true,
-          workoutId: true,
-          exerciseId: true,
-          order: true,
-          sets: true,
-          reps: true,
-          restSeconds: true,
-          notes: true,
-          tempo: true,
-          rir: true,
-          rpe: true,
-          exercise: {
-            select: {
-              id: true,
-              name: true,
-              category: true,
-              videoUrl: true,
-              instructions: true,
-            },
-          },
-        },
+        select: ITEM_SELECT,
       }),
     ]);
 
@@ -398,7 +424,7 @@ export const getAllWorkoutItems = async (req, res, next) => {
 
     const payload = {
       status: "success",
-      data: items,
+      data: items.map(toResponseItem),
       meta: {
         page,
         limit,
@@ -442,7 +468,11 @@ export const getAllWorkoutItemsByWorkoutId = async (req, res, next) => {
       return next(new AppError("Invalid sort field", 400));
     }
 
-    const where = { workoutId };
+    const where = {
+      day: {
+        workoutId: String(workoutId),
+      },
+    };
 
     const [total, items] = await prisma.$transaction([
       prisma.workoutItem.count({ where }),
@@ -453,28 +483,7 @@ export const getAllWorkoutItemsByWorkoutId = async (req, res, next) => {
         orderBy: {
           [sort]: order,
         },
-        select: {
-          id: true,
-          workoutId: true,
-          exerciseId: true,
-          order: true,
-          sets: true,
-          reps: true,
-          restSeconds: true,
-          notes: true,
-          tempo: true,
-          rir: true,
-          rpe: true,
-          exercise: {
-            select: {
-              id: true,
-              name: true,
-              category: true,
-              videoUrl: true,
-              instructions: true,
-            },
-          },
-        },
+        select: ITEM_SELECT,
       }),
     ]);
 
@@ -482,7 +491,7 @@ export const getAllWorkoutItemsByWorkoutId = async (req, res, next) => {
 
     return res.status(200).json({
       status: "success",
-      data: items,
+      data: items.map(toResponseItem),
       meta: {
         page,
         limit,
@@ -506,17 +515,8 @@ export const updateWorkoutItemByIdPatch = async (req, res, next) => {
     }
 
     const existing = await prisma.workoutItem.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        workoutId: true,
-        workout: {
-          select: {
-            trainerId: true,
-            clientId: true,
-          },
-        },
-      },
+      where: { id: String(id) },
+      select: ITEM_SELECT,
     });
 
     if (!existing) {
@@ -526,15 +526,15 @@ export const updateWorkoutItemByIdPatch = async (req, res, next) => {
     if (
       !ensureOwnOrPrivileged(
         req,
-        existing.workout.trainerId,
-        existing.workout.clientId,
+        existing.day.workout.trainerId,
+        existing.day.workout.clientId,
       )
     ) {
       return next(new AppError("Forbidden", 403));
     }
 
     const allowedFields = [
-      "workoutId",
+      "workoutDayId",
       "exerciseId",
       "order",
       "sets",
@@ -559,13 +559,18 @@ export const updateWorkoutItemByIdPatch = async (req, res, next) => {
       }
     }
 
-    if (updateData.workoutId !== undefined) {
-      const nextWorkout = await ensureWorkoutExists(updateData.workoutId);
+    if (updateData.workoutDayId !== undefined) {
+      const nextDay = await ensureWorkoutDayExists(updateData.workoutDayId);
       if (
-        !ensureOwnOrPrivileged(req, nextWorkout.trainerId, nextWorkout.clientId)
+        !ensureOwnOrPrivileged(
+          req,
+          nextDay.workout.trainerId,
+          nextDay.workout.clientId,
+        )
       ) {
         return next(new AppError("Forbidden", 403));
       }
+      updateData.workoutDayId = String(updateData.workoutDayId);
     }
 
     if (updateData.exerciseId !== undefined) {
@@ -608,47 +613,42 @@ export const updateWorkoutItemByIdPatch = async (req, res, next) => {
     }
 
     const updated = await prisma.workoutItem.update({
-      where: { id },
+      where: { id: String(id) },
       data: updateData,
-      select: {
-        id: true,
-        workoutId: true,
-        exerciseId: true,
-        order: true,
-        sets: true,
-        reps: true,
-        restSeconds: true,
-        notes: true,
-        tempo: true,
-        rir: true,
-        rpe: true,
-        exercise: {
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            videoUrl: true,
-            instructions: true,
-          },
-        },
-      },
+      select: ITEM_SELECT,
     });
+
+    const dayIdsToRecalc = Array.from(
+      new Set([existing.workoutDayId, updated.workoutDayId].map(String)),
+    );
+    for (const dayId of dayIdsToRecalc) {
+      await recalcWorkoutDayAndSummary(dayId);
+    }
 
     invalidateCacheByTags([
       ...buildResourceTags("workout_items", id),
       ...buildResourceTags("workout_items"),
-      ...buildResourceTags("workouts", existing.workoutId),
-      ...(updated.workoutId !== existing.workoutId
-        ? buildResourceTags("workouts", updated.workoutId)
+      ...buildResourceTags("workout_days", existing.workoutDayId),
+      ...buildResourceTags("workouts", existing.day.workoutId),
+      ...(updated.workoutDayId !== existing.workoutDayId
+        ? buildResourceTags("workout_days", updated.workoutDayId)
+        : []),
+      ...(updated.day.workoutId !== existing.day.workoutId
+        ? buildResourceTags("workouts", updated.day.workoutId)
         : []),
     ]);
 
     return res.status(200).json({
       status: "success",
-      data: updated,
+      data: toResponseItem(updated),
       source: "database",
     });
   } catch (error) {
+    if (error?.code === "P2002") {
+      return next(
+        new AppError("order already exists in this workout day", 409),
+      );
+    }
     return next(error);
   }
 };
@@ -661,17 +661,8 @@ export const deleteWorkoutItemById = async (req, res, next) => {
     }
 
     const existing = await prisma.workoutItem.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        workoutId: true,
-        workout: {
-          select: {
-            trainerId: true,
-            clientId: true,
-          },
-        },
-      },
+      where: { id: String(id) },
+      select: ITEM_SELECT,
     });
 
     if (!existing) {
@@ -681,19 +672,22 @@ export const deleteWorkoutItemById = async (req, res, next) => {
     if (
       !ensureOwnOrPrivileged(
         req,
-        existing.workout.trainerId,
-        existing.workout.clientId,
+        existing.day.workout.trainerId,
+        existing.day.workout.clientId,
       )
     ) {
       return next(new AppError("Forbidden", 403));
     }
 
-    await prisma.workoutItem.delete({ where: { id } });
+    await prisma.workoutItem.delete({ where: { id: String(id) } });
+
+    await recalcWorkoutDayAndSummary(existing.workoutDayId);
 
     invalidateCacheByTags([
       ...buildResourceTags("workout_items", id),
       ...buildResourceTags("workout_items"),
-      ...buildResourceTags("workouts", existing.workoutId),
+      ...buildResourceTags("workout_days", existing.workoutDayId),
+      ...buildResourceTags("workouts", existing.day.workoutId),
     ]);
 
     return res.status(200).json({
@@ -718,6 +712,20 @@ export const deleteAllWorkoutItems = async (req, res, next) => {
     }
 
     const result = await prisma.workoutItem.deleteMany({});
+
+    await prisma.workoutDay.updateMany({
+      data: {
+        totalCount: 0,
+        completedCount: 0,
+      },
+    });
+
+    await prisma.workout.updateMany({
+      data: {
+        totalCount: 0,
+        completedCount: 0,
+      },
+    });
 
     invalidateCacheByTags(buildResourceTags("workout_items"));
 

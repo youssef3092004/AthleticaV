@@ -1,8 +1,8 @@
 import { Router } from "express";
 import {
-  addMealTemplateDay,
-  addMealTemplateItem,
   createMealTemplate,
+  deleteMealTemplateByTemplateId,
+  getMealTemplateByTemplateId,
   getMealTemplates,
 } from "../controllers/mealTemplate.js";
 import { verifyToken } from "../middleware/auth.js";
@@ -16,23 +16,26 @@ router.post(
   checkPermission("CREATE-MEAL-TEMPLATES"),
   createMealTemplate,
 );
+
 router.get(
   "/",
   verifyToken,
   checkPermission("VIEW-MEAL-TEMPLATES"),
   getMealTemplates,
 );
-router.post(
-  "/:id/days",
+
+router.get(
+  "/getById/:templateId",
   verifyToken,
-  checkPermission("CREATE-MEAL-TEMPLATES"),
-  addMealTemplateDay,
+  checkPermission("VIEW-MEAL-TEMPLATES"),
+  getMealTemplateByTemplateId,
 );
-router.post(
-  "/:id/items",
+
+router.delete(
+  "/delete/:templateId",
   verifyToken,
-  checkPermission("CREATE-MEAL-TEMPLATES"),
-  addMealTemplateItem,
+  checkPermission("DELETE-MEAL-TEMPLATES"),
+  deleteMealTemplateByTemplateId,
 );
 
 export default router;
