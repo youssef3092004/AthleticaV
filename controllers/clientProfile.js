@@ -31,17 +31,17 @@ const canManageAnyProfile = (user) => {
  */
 export const upsertClientProfile = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const { userId: clientId } = req.params;
     const { age, heightCm, weightKg, fitnessGoal, medicalConditions } =
       req.body;
 
-    if (!userId) {
+    if (!clientId) {
       return next(new AppError("User ID is required", 400));
     }
 
     const requesterId = getUserId(req);
     const isAdmin = canManageAnyProfile(req.user);
-    const isOwnProfile = String(requesterId) === String(userId);
+    const isOwnProfile = String(requesterId) === String(clientId);
 
     if (!isAdmin && !isOwnProfile) {
       return next(
@@ -51,7 +51,7 @@ export const upsertClientProfile = async (req, res, next) => {
 
     // Validate user exists
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: clientId },
       select: { id: true },
     });
 
@@ -83,15 +83,15 @@ export const upsertClientProfile = async (req, res, next) => {
 
     // Upsert profile
     const profile = await prisma.clientProfile.upsert({
-      where: { userId },
+      where: { clientId },
       update: normalized,
       create: {
-        userId,
+        clientId,
         ...normalized,
       },
     });
 
-    invalidateCacheByTags(buildResourceTags("client_profiles", userId));
+    invalidateCacheByTags(buildResourceTags("client_profiles", clientId));
 
     return res.status(200).json({
       status: "success",
@@ -109,15 +109,15 @@ export const upsertClientProfile = async (req, res, next) => {
  */
 export const getClientProfile = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const { userId: clientId } = req.params;
 
-    if (!userId) {
+    if (!clientId) {
       return next(new AppError("User ID is required", 400));
     }
 
     const requesterId = getUserId(req);
     const isAdmin = canManageAnyProfile(req.user);
-    const isOwnProfile = String(requesterId) === String(userId);
+    const isOwnProfile = String(requesterId) === String(clientId);
 
     if (!isAdmin && !isOwnProfile) {
       return next(
@@ -126,7 +126,7 @@ export const getClientProfile = async (req, res, next) => {
     }
 
     const profile = await prisma.clientProfile.findUnique({
-      where: { userId },
+      where: { clientId },
     });
 
     if (!profile) {
@@ -148,15 +148,15 @@ export const getClientProfile = async (req, res, next) => {
  */
 export const getMyClientProfile = async (req, res, next) => {
   try {
-    const userId = getUserId(req);
-    if (!userId) {
+    const clientId = getUserId(req);
+    if (!clientId) {
       return next(new AppError("Unauthorized", 401));
     }
 
     const profile = await prisma.clientProfile.findUnique({
-      where: { userId },
+      where: { clientId },
       include: {
-        user: {
+        client: {
           select: {
             id: true,
             name: true,
@@ -192,9 +192,9 @@ export const getMyClientProfile = async (req, res, next) => {
  */
 export const deleteClientProfile = async (req, res, next) => {
   try {
-    const { userId } = req.params;
+    const { userId: clientId } = req.params;
 
-    if (!userId) {
+    if (!clientId) {
       return next(new AppError("User ID is required", 400));
     }
 
@@ -205,7 +205,7 @@ export const deleteClientProfile = async (req, res, next) => {
     }
 
     const existing = await prisma.clientProfile.findUnique({
-      where: { userId },
+      where: { clientId },
     });
 
     if (!existing) {
@@ -213,10 +213,10 @@ export const deleteClientProfile = async (req, res, next) => {
     }
 
     await prisma.clientProfile.delete({
-      where: { userId },
+      where: { clientId },
     });
 
-    invalidateCacheByTags(buildResourceTags("client_profiles", userId));
+    invalidateCacheByTags(buildResourceTags("client_profiles", clientId));
 
     return res.status(200).json({
       status: "success",
@@ -241,7 +241,7 @@ export const getAllClientProfiles = async (req, res, next) => {
     }
 
     const { page, limit, skip, sort, order } = pagination(req, {
-      defaultSort: "createdAt",
+      defaultSort: "updatedAt",
       defaultOrder: "desc",
       defaultLimit: 20,
     });
@@ -255,7 +255,7 @@ export const getAllClientProfiles = async (req, res, next) => {
           [sort]: order,
         },
         include: {
-          user: {
+          client: {
             select: {
               name: true,
               email: true,
@@ -292,7 +292,7 @@ export const getAllClientProfiles = async (req, res, next) => {
  */
 export const batchUpdateClientProfiles = async (req, res, next) => {
   try {
-    const { updates } = req.body; // [{userId, profileData}, ...]
+    const { updates } = req.body; // [{userId|clientId, profileData}, ...]
 
     if (!Array.isArray(updates) || updates.length === 0) {
       return next(new AppError("Updates must be a non-empty array", 400));
@@ -306,12 +306,14 @@ export const batchUpdateClientProfiles = async (req, res, next) => {
 
     const results = [];
 
-    for (const { userId, ...profileData } of updates) {
-      if (!userId) {
+    for (const { userId, clientId, ...profileData } of updates) {
+      const targetClientId = clientId || userId;
+
+      if (!targetClientId) {
         results.push({
-          userId,
+          clientId: null,
           success: false,
-          error: "userId is required",
+          error: "clientId or userId is required",
         });
         continue;
       }
@@ -319,7 +321,7 @@ export const batchUpdateClientProfiles = async (req, res, next) => {
       const validation = validateClientProfileData(profileData);
       if (!validation.valid) {
         results.push({
-          userId,
+          clientId: targetClientId,
           success: false,
           error: validation.errors,
         });
@@ -329,21 +331,23 @@ export const batchUpdateClientProfiles = async (req, res, next) => {
       try {
         const normalized = normalizeClientProfileData(profileData);
         const updated = await prisma.clientProfile.upsert({
-          where: { userId },
+          where: { clientId: targetClientId },
           update: normalized,
-          create: { userId, ...normalized },
+          create: { clientId: targetClientId, ...normalized },
         });
 
-        invalidateCacheByTags(buildResourceTags("client_profiles", userId));
+        invalidateCacheByTags(
+          buildResourceTags("client_profiles", targetClientId),
+        );
 
         results.push({
-          userId,
+          clientId: targetClientId,
           success: true,
           data: updated,
         });
       } catch (error) {
         results.push({
-          userId,
+          clientId: targetClientId,
           success: false,
           error: error.message,
         });

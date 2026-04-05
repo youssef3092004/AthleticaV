@@ -7,16 +7,45 @@ import {
   ROLE_PERMISSION_MAP,
 } from "../configs/rbac.js";
 
+const ROLE_SEED_DATA = [
+  { idx: 0, id: "2fafbe3d-6069-43ad-8cc5-6f93170025de", name: "SUPPORT" },
+  { idx: 1, id: "4933e25a-5861-4478-8947-3456759d2dc5", name: "OWNER" },
+  { idx: 2, id: "5120385b-6f92-4de0-89db-58043a0775d8", name: "DEVELOPER" },
+  { idx: 3, id: "670e8a6e-98dd-4270-b651-0d2923cbda1c", name: "CLIENT" },
+  { idx: 4, id: "b0fd6da3-def3-4448-8eb5-03e043219551", name: "TRAINER" },
+  { idx: 5, id: "b8c3e936-0b8c-4a3c-a134-671294e3cbd9", name: "ADMIN" },
+];
+
 const upsertRoles = async () => {
-  const roleRecords = await Promise.all(
-    RBAC_ROLES.map((name) =>
-      prisma.role.upsert({
-        where: { name },
-        update: {},
-        create: { name },
-      }),
-    ),
-  );
+  const roleRecords = [];
+
+  for (const role of ROLE_SEED_DATA) {
+    const existing = await prisma.role.findUnique({
+      where: { name: role.name },
+      select: { id: true, name: true },
+    });
+
+    if (existing) {
+      if (existing.id !== role.id) {
+        console.warn(
+          `Role ${role.name} already exists with id ${existing.id}; keeping existing id instead of creating a new one.`,
+        );
+      }
+
+      roleRecords.push(existing);
+      continue;
+    }
+
+    const created = await prisma.role.create({
+      data: {
+        id: role.id,
+        name: role.name,
+      },
+      select: { id: true, name: true },
+    });
+
+    roleRecords.push(created);
+  }
 
   return new Map(roleRecords.map((role) => [role.name, role.id]));
 };

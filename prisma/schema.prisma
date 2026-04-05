@@ -18,6 +18,13 @@ enum TrainerClientStatus {
   ENDED
 }
 
+enum TrainerClientInviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
 enum WorkoutLevel {
   BEGINNER
   INTERMEDIATE
@@ -44,6 +51,21 @@ enum ProgressMetricType {
   WEIGHT
   BODY_FAT
   MUSCLE
+}
+
+enum IntakeQuestionKey {
+  DIET_OR_NUTRITION_PLAN
+  MEDICAL_CONDITIONS
+  ACTIVITY_LEVEL
+  FITNESS_PREFERENCES
+  TYPICAL_EATING_DAY
+  TRAINING_TIME_COMMITMENT
+  MOTIVATION
+  MILESTONES_OR_DEADLINES
+  CURRENT_WEIGHT
+  CURRENT_HEIGHT
+  PRIMARY_FITNESS_GOALS
+  PREVIOUS_PROGRAM_EXPERIENCE
 }
 
 enum MessageType {
@@ -97,24 +119,29 @@ model User {
   trainerProfile         TrainerProfile?
   clientProfile          ClientProfile?
   subscriptions          Subscription[]
-  trainerClientsAsCoach  TrainerClient[]     @relation("TrainerClientsTrainer")
-  trainerClientsAsUser   TrainerClient[]     @relation("TrainerClientsClient")
+  trainerClientsAsCoach  TrainerClient[]       @relation("TrainerClientsTrainer")
+  trainerClientsAsUser   TrainerClient[]       @relation("TrainerClientsClient")
+  inviteCodeAsTrainer    TrainerInviteCode?    @relation("TrainerInviteCodesTrainer")
+  invitesAsTrainer       TrainerClientInvite[] @relation("TrainerClientInvitesTrainer")
+  invitesAsClient        TrainerClientInvite[] @relation("TrainerClientInvitesClient")
   notifications          Notification[]
-  appointmentsAsTrainer  Appointment[]       @relation("AppointmentTrainer")
-  appointmentsAsClient   Appointment[]       @relation("AppointmentClient")
+  appointmentsAsTrainer  Appointment[]         @relation("AppointmentTrainer")
+  appointmentsAsClient   Appointment[]         @relation("AppointmentClient")
   workoutTemplates       WorkoutTemplate[]
-  workoutsAsClient       Workout[]           @relation("WorkoutClient")
-  workoutsAsTrainer      Workout[]           @relation("WorkoutTrainer")
+  workoutsAsClient       Workout[]             @relation("WorkoutClient")
+  workoutsAsTrainer      Workout[]             @relation("WorkoutTrainer")
   workoutCompletions     WorkoutCompletion[]
   mealTemplates          MealTemplate[]
-  mealPlansAsTrainer     MealPlan[]          @relation("MealPlanTrainer")
+  mealPlansAsTrainer     MealPlan[]            @relation("MealPlanTrainer")
   mealCompletions        MealCompletion[]
   progressMetrics        ProgressMetric[]
-  conversationsAsTrainer Conversation[]      @relation("ConversationTrainer")
-  conversationsAsClient  Conversation[]      @relation("ConversationClient")
-  sentMessages           Message[]           @relation("MessageSender")
-  transactionsAsClient   Transaction[]       @relation("TransactionClient")
-  transactionsAsTrainer  Transaction[]       @relation("TransactionTrainer")
+  intakeAnswersAsTrainer ClientIntakeAnswer[]  @relation("ClientIntakeTrainer")
+  intakeAnswersAsClient  ClientIntakeAnswer[]  @relation("ClientIntakeClient")
+  conversationsAsTrainer Conversation[]        @relation("ConversationTrainer")
+  conversationsAsClient  Conversation[]        @relation("ConversationClient")
+  sentMessages           Message[]             @relation("MessageSender")
+  transactionsAsClient   Transaction[]         @relation("TransactionClient")
+  transactionsAsTrainer  Transaction[]         @relation("TransactionTrainer")
   trainerWallet          TrainerWallet?
   payouts                Payout[]
   activityLogs           ActivityLog[]
@@ -287,6 +314,40 @@ model TrainerClient {
   @@unique([trainerId, clientId])
   @@index([trainerId])
   @@index([clientId])
+}
+
+model TrainerClientInvite {
+  id             String                    @id @default(uuid()) @db.Uuid
+  trainerId      String                    @db.Uuid
+  inviteCodeId   String                    @db.Uuid
+  usedByClientId String?                   @db.Uuid
+  clientName     String?
+  clientPhone    String?
+  clientEmail    String?
+  status         TrainerClientInviteStatus @default(PENDING)
+  usedAt         DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  trainer      User              @relation("TrainerClientInvitesTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  inviteCode   TrainerInviteCode @relation(fields: [inviteCodeId], references: [id], onDelete: Cascade)
+  usedByClient User?             @relation("TrainerClientInvitesClient", fields: [usedByClientId], references: [id], onDelete: SetNull)
+
+  @@index([trainerId, status, createdAt])
+  @@index([trainerId, clientPhone, status])
+  @@index([clientPhone, status])
+  @@index([usedByClientId])
+  @@index([inviteCodeId]) 
+}
+
+model TrainerInviteCode {
+  id           String @id @default(uuid()) @db.Uuid
+  trainerId    String @unique @db.Uuid
+  code         String @unique
+  totalClients Int    @default(0)
+
+  trainer User                  @relation("TrainerInviteCodesTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  invites TrainerClientInvite[]
 }
 
 enum Category {
@@ -649,6 +710,23 @@ model ProgressMetric {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model ClientIntakeAnswer {
+  id          String            @id @default(uuid()) @db.Uuid
+  trainerId   String            @db.Uuid
+  clientId    String            @db.Uuid
+  questionKey IntakeQuestionKey
+  answer      String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  trainer User @relation("ClientIntakeTrainer", fields: [trainerId], references: [id], onDelete: Cascade)
+  client  User @relation("ClientIntakeClient", fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([trainerId, clientId, questionKey])
+  @@index([trainerId, clientId])
+  @@index([clientId, updatedAt])
 }
 
 model Conversation {

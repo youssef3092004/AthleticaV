@@ -131,6 +131,11 @@ const createUserWithRole = async ({ input, roleId, extraData, select }) => {
   });
 };
 
+const normalizeInviteCode = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase();
+
 // ============ REGISTER FUNCTIONS (Separated by Role Type) ============
 
 /**
@@ -152,17 +157,34 @@ export const clientRegister = async (req, res, next) => {
       medicalConditions,
     } = req.body;
 
-    const requiredFields = {
-      name,
-      phone,
-      email,
-      password,
-      age,
-      heightCm,
-      weightKg,
-      fitnessGoal,
-      medicalConditions,
-    };
+    const inviteCodeInput = normalizeInviteCode(
+      req.body.code || req.query.code,
+    );
+    const isInviteSignup = Boolean(inviteCodeInput);
+
+    const requiredFields = isInviteSignup
+      ? {
+          name,
+          phone,
+          email,
+          password,
+          age,
+          heightCm,
+          weightKg,
+          fitnessGoal,
+        }
+      : {
+          name,
+          phone,
+          email,
+          password,
+          age,
+          heightCm,
+          weightKg,
+          fitnessGoal,
+          medicalConditions,
+        };
+
     for (const [field, value] of Object.entries(requiredFields)) {
       if (
         value === undefined ||
@@ -187,59 +209,142 @@ export const clientRegister = async (req, res, next) => {
       throw new AppError("CLIENT role is not configured", 500);
     }
 
-    const created = await prisma.user.create({
-      data: {
-        name,
-        phone,
-        email,
-        profileImage: profileImage || DEFAULT_PROFILE_IMAGE,
-        password: passwordHash,
-        userRoles: {
-          create: { roleId: clientRole.id },
-        },
-        clientProfile: {
-          create: {
-            age: Number(age),
-            heightCm: Number(heightCm),
-            weightKg: Number(weightKg),
-            fitnessGoal: String(fitnessGoal).trim(),
-            medicalConditions:
-              medicalConditions === undefined || medicalConditions === null
-                ? null
-                : String(medicalConditions).trim(),
+    const registration = await prisma.$transaction(async (tx) => {
+      let inviteCodeRecord = null;
+
+      if (isInviteSignup) {
+        inviteCodeRecord = await tx.trainerInviteCode.findUnique({
+          where: { code: inviteCodeInput },
+          select: {
+            id: true,
+            trainerId: true,
+            code: true,
+            totalClients: true,
           },
+        });
+
+        if (!inviteCodeRecord) {
+          throw new AppError("Invalid invite code", 404);
+        }
+      }
+
+      const user = await tx.user.create({
+        data: {
+          name,
+          phone,
+          email,
+          profileImage: profileImage || DEFAULT_PROFILE_IMAGE,
+          password: passwordHash,
+          userRoles: {
+            create: { roleId: clientRole.id },
+          },
+          ...(isInviteSignup
+            ? {
+                clientProfile: {
+                  create: {
+                    age: Number(age),
+                    heightCm: Number(heightCm),
+                    weightKg: Number(weightKg),
+                    fitnessGoal: String(fitnessGoal).trim(),
+                    medicalConditions:
+                      medicalConditions === undefined ||
+                      medicalConditions === null
+                        ? null
+                        : String(medicalConditions).trim(),
+                  },
+                },
+              }
+            : {
+                clientProfile: {
+                  create: {
+                    age: Number(age),
+                    heightCm: Number(heightCm),
+                    weightKg: Number(weightKg),
+                    fitnessGoal: String(fitnessGoal).trim(),
+                    medicalConditions:
+                      medicalConditions === undefined ||
+                      medicalConditions === null
+                        ? null
+                        : String(medicalConditions).trim(),
+                  },
+                },
+              }),
         },
-      },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        profileImage: true,
-        email: true,
-        password: true,
-        isVerified: true,
-        createdAt: true,
-        updatedAt: true,
-        clientProfile: true,
-      },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          profileImage: true,
+          email: true,
+          password: true,
+          isVerified: true,
+          createdAt: true,
+          updatedAt: true,
+          clientProfile: true,
+        },
+      });
+
+      let inviteHistory = null;
+      if (inviteCodeRecord) {
+        inviteHistory = await tx.trainerClientInvite.create({
+          data: {
+            trainerId: inviteCodeRecord.trainerId,
+            inviteCodeId: inviteCodeRecord.id,
+            usedByClientId: user.id,
+            clientName: name,
+            clientPhone: phone,
+            clientEmail: email || null,
+            status: "PENDING",
+          },
+          select: {
+            id: true,
+            trainerId: true,
+            inviteCodeId: true,
+            usedByClientId: true,
+            clientName: true,
+            clientPhone: true,
+            clientEmail: true,
+            status: true,
+            usedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+      }
+
+      return { user, inviteCodeRecord, inviteHistory };
     });
 
-    const userWithoutPassword = { ...created };
+    const userWithoutPassword = { ...registration.user };
     delete userWithoutPassword.password;
 
     return res.status(201).json({
       success: true,
-      message:
-        "Client registered successfully. Please login with your credentials.",
+      message: isInviteSignup
+        ? "Client registered successfully. Waiting for trainer approval."
+        : "Client registered successfully. Please login with your credentials.",
       data: {
         user: userWithoutPassword,
         role: {
           id: clientRole.id,
           name: clientRole.name,
         },
-        clientProfile: {
-          data: created.clientProfile,
-        },
+        clientProfile: { data: registration.user.clientProfile || null },
+        invite: registration.inviteHistory
+          ? {
+              data: registration.inviteHistory,
+              code: registration.inviteCodeRecord?.code || inviteCodeInput,
+              totalClients: registration.inviteCodeRecord?.totalClients ?? 0,
+            }
+          : null,
+        trainerInviteCode: registration.inviteCodeRecord
+          ? {
+              id: registration.inviteCodeRecord.id,
+              trainerId: registration.inviteCodeRecord.trainerId,
+              code: registration.inviteCodeRecord.code,
+              totalClients: registration.inviteCodeRecord.totalClients ?? 0,
+            }
+          : null,
       },
     });
   } catch (err) {

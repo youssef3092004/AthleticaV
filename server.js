@@ -43,6 +43,9 @@ import mealPlanRoutes from "./routes/mealPlan.js";
 import mealPlanDayRoutes from "./routes/mealPlanDay.js";
 import mealPlanItemRoutes from "./routes/mealPlanItem.js";
 import mealCompletionRoutes from "./routes/mealCompletion.js";
+import clientIntakeRoutes from "./routes/clientIntake.js";
+import trainerClientInviteRoutes from "./routes/trainerClientInvite.js";
+import trainerInviteCodeRoutes from "./routes/trainerInviteCode.js";
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
@@ -70,6 +73,9 @@ app.use("/api/v1/meal-plans", mealPlanRoutes);
 app.use("/api/v1/meal-plans/days", mealPlanDayRoutes);
 app.use("/api/v1/meal-plans/items", mealPlanItemRoutes);
 app.use("/api/v1/meal-completions", mealCompletionRoutes);
+app.use("/api/v1/client-intake", clientIntakeRoutes);
+app.use("/api/v1/client-invites", trainerClientInviteRoutes);
+app.use("/api/v1/trainer-invite-codes", trainerInviteCodeRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
