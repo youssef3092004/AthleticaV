@@ -7,6 +7,10 @@ import {
   isValidPassword,
   isValidPhone,
 } from "../utils/validation.js";
+import {
+  validateClientProfileData,
+  normalizeClientProfileData,
+} from "../utils/clientProfileValidation.js";
 import { AppError } from "../utils/appError.js";
 import jwt from "jsonwebtoken";
 
@@ -162,41 +166,30 @@ export const clientRegister = async (req, res, next) => {
     );
     const isInviteSignup = Boolean(inviteCodeInput);
 
-    const requiredFields = isInviteSignup
-      ? {
-          name,
-          phone,
-          email,
-          password,
-          age,
-          heightCm,
-          weightKg,
-          fitnessGoal,
-        }
-      : {
-          name,
-          phone,
-          email,
-          password,
-          age,
-          heightCm,
-          weightKg,
-          fitnessGoal,
-          medicalConditions,
-        };
-
-    for (const [field, value] of Object.entries(requiredFields)) {
-      if (
-        value === undefined ||
-        value === null ||
-        (typeof value === "string" && !value.trim())
-      ) {
-        return next(new AppError(`${field} is required`, 400));
-      }
-    }
-
     // Validate all fields in one pass
     validateAuthFields(name, phone, email, password, true);
+
+    const clientProfileInput = {
+      age,
+      heightCm,
+      weightKg,
+      fitnessGoal,
+      medicalConditions,
+    };
+
+    const clientProfileValidation =
+      validateClientProfileData(clientProfileInput);
+    if (!clientProfileValidation.valid) {
+      return next(
+        new AppError(
+          `Validation failed: ${JSON.stringify(clientProfileValidation.errors)}`,
+          400,
+        ),
+      );
+    }
+
+    const normalizedClientProfile =
+      normalizeClientProfileData(clientProfileInput);
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
@@ -238,37 +231,9 @@ export const clientRegister = async (req, res, next) => {
           userRoles: {
             create: { roleId: clientRole.id },
           },
-          ...(isInviteSignup
-            ? {
-                clientProfile: {
-                  create: {
-                    age: Number(age),
-                    heightCm: Number(heightCm),
-                    weightKg: Number(weightKg),
-                    fitnessGoal: String(fitnessGoal).trim(),
-                    medicalConditions:
-                      medicalConditions === undefined ||
-                      medicalConditions === null
-                        ? null
-                        : String(medicalConditions).trim(),
-                  },
-                },
-              }
-            : {
-                clientProfile: {
-                  create: {
-                    age: Number(age),
-                    heightCm: Number(heightCm),
-                    weightKg: Number(weightKg),
-                    fitnessGoal: String(fitnessGoal).trim(),
-                    medicalConditions:
-                      medicalConditions === undefined ||
-                      medicalConditions === null
-                        ? null
-                        : String(medicalConditions).trim(),
-                  },
-                },
-              }),
+          clientProfile: {
+            create: normalizedClientProfile,
+          },
         },
         select: {
           id: true,

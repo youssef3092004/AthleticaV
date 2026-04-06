@@ -66,6 +66,47 @@ const ensureClientBelongsToTrainerIfNeeded = async (access, userId) => {
   }
 };
 
+const calculateCompletionPercentage = (completedCount, totalCount) => {
+  const completed = Number(completedCount) || 0;
+  const total = Number(totalCount) || 0;
+  if (total <= 0) return 0;
+  return Number(((completed / total) * 100).toFixed(2));
+};
+
+const resolveTrainerForWowMoment = async (
+  access,
+  clientId,
+  trainerIdFromQuery,
+) => {
+  if (!access.isPrivileged) {
+    ensureHasAnyRole(access, ["TRAINER"], "Forbidden");
+    await ensureClientBelongsToTrainerIfNeeded(access, clientId);
+    return access.userId;
+  }
+
+  if (trainerIdFromQuery) {
+    return trainerIdFromQuery;
+  }
+
+  const relation = await prisma.trainerClient.findFirst({
+    where: {
+      clientId,
+      status: "ACTIVE",
+    },
+    select: { trainerId: true },
+    orderBy: { startedAt: "desc" },
+  });
+
+  if (!relation) {
+    throw new AppError(
+      "No active trainer-client relationship found for this client",
+      404,
+    );
+  }
+
+  return relation.trainerId;
+};
+
 export const createProgressMetric = async (req, res, next) => {
   try {
     const access = await getUserAccessContext(req);
@@ -193,6 +234,188 @@ export const getProgressMetrics = async (req, res, next) => {
         totalPages: Math.ceil(total / limit),
         sort,
         order,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const getCoachWowMoment = async (req, res, next) => {
+  try {
+    const access = await getUserAccessContext(req);
+    const clientId = String(req.params.clientId || "").trim();
+    const trainerIdFromQuery = req.query.trainerId
+      ? String(req.query.trainerId).trim()
+      : null;
+
+    if (!clientId) {
+      return next(new AppError("clientId is required", 400));
+    }
+
+    const trainerId = await resolveTrainerForWowMoment(
+      access,
+      clientId,
+      trainerIdFromQuery,
+    );
+
+    const [latestWorkout, mealPlan, latestCoachMessage] = await Promise.all([
+      prisma.workout.findFirst({
+        where: {
+          trainerId,
+          clientId,
+        },
+        orderBy: [{ endDate: "desc" }, { startDate: "desc" }],
+        select: {
+          id: true,
+          startDate: true,
+          endDate: true,
+          totalCount: true,
+          completedCount: true,
+        },
+      }),
+      prisma.mealPlan.findFirst({
+        where: {
+          trainerId,
+          clientProfile: {
+            clientId,
+          },
+        },
+        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          status: true,
+          totalCount: true,
+          completedCount: true,
+          startDate: true,
+          endDate: true,
+        },
+      }),
+      prisma.message.findFirst({
+        where: {
+          senderId: trainerId,
+          conversation: {
+            trainerId,
+            clientId,
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          conversationId: true,
+          body: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const workoutCompletionPercentage = latestWorkout
+      ? calculateCompletionPercentage(
+          latestWorkout.completedCount,
+          latestWorkout.totalCount,
+        )
+      : 0;
+
+    const workoutStatus = latestWorkout
+      ? latestWorkout.totalCount > 0 &&
+        latestWorkout.completedCount >= latestWorkout.totalCount
+        ? "DONE"
+        : latestWorkout.completedCount > 0
+          ? "IN_PROGRESS"
+          : "NOT_STARTED"
+      : "NO_WORKOUT";
+
+    const mealCompletionPercentage = mealPlan
+      ? calculateCompletionPercentage(
+          mealPlan.completedCount,
+          mealPlan.totalCount,
+        )
+      : 0;
+
+    const loggedWeightRows = latestWorkout
+      ? await prisma.workoutCompletion.findMany({
+          where: {
+            clientId,
+            loggedWeightKg: { not: null },
+            workoutItem: {
+              day: {
+                workoutId: latestWorkout.id,
+              },
+            },
+          },
+          orderBy: { completedAt: "desc" },
+          select: {
+            workoutItemId: true,
+            loggedWeightKg: true,
+            completedAt: true,
+            workoutItem: {
+              select: {
+                exercise: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : [];
+
+    const seenExerciseIds = new Set();
+    const loggedWeights = [];
+    for (const row of loggedWeightRows) {
+      const exercise = row.workoutItem?.exercise;
+      if (!exercise?.id || seenExerciseIds.has(exercise.id)) {
+        continue;
+      }
+
+      seenExerciseIds.add(exercise.id);
+      loggedWeights.push({
+        exerciseId: exercise.id,
+        exerciseName: exercise.name,
+        loggedWeightKg: row.loggedWeightKg,
+        completedAt: row.completedAt,
+        workoutItemId: row.workoutItemId,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        clientId,
+        trainerId,
+        generatedAt: new Date().toISOString(),
+        workout: {
+          workoutId: latestWorkout?.id || null,
+          startDate: latestWorkout?.startDate || null,
+          endDate: latestWorkout?.endDate || null,
+          status: workoutStatus,
+          totalCount: latestWorkout?.totalCount || 0,
+          completedCount: latestWorkout?.completedCount || 0,
+          completionPercentage: workoutCompletionPercentage,
+          loggedWeights,
+        },
+        meals: {
+          mealPlanId: mealPlan?.id || null,
+          status: mealPlan?.status || null,
+          startDate: mealPlan?.startDate || null,
+          endDate: mealPlan?.endDate || null,
+          totalCount: mealPlan?.totalCount || 0,
+          completedCount: mealPlan?.completedCount || 0,
+          completionPercentage: mealCompletionPercentage,
+          summary: mealPlan
+            ? `${mealPlan.completedCount}/${mealPlan.totalCount}`
+            : null,
+        },
+        latestCoachMessage: latestCoachMessage
+          ? {
+              messageId: latestCoachMessage.id,
+              conversationId: latestCoachMessage.conversationId,
+              body: latestCoachMessage.body,
+              createdAt: latestCoachMessage.createdAt,
+            }
+          : null,
       },
     });
   } catch (error) {

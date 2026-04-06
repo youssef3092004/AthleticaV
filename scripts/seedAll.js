@@ -7,6 +7,8 @@ const SEED_STEPS = [
   "seed:foods",
   "seed:workout",
   "seed:client-profile",
+  "seed:conversation",
+  "seed:demo",
 ];
 
 const MAX_ATTEMPTS = 4;

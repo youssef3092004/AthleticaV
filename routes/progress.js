@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createProgressMetric,
+  getCoachWowMoment,
   getProgressMetrics,
 } from "../controllers/progress.js";
 import { verifyToken } from "../middleware/auth.js";
@@ -14,6 +15,13 @@ router.post(
   checkPermission("CREATE-PROGRESS"),
   createProgressMetric,
 );
+router.get(
+  "/wow-moment/:clientId",
+  verifyToken,
+  checkPermission("VIEW-PROGRESS"),
+  getCoachWowMoment,
+);
+
 router.get(
   "/",
   verifyToken,

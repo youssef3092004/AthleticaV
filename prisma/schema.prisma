@@ -245,10 +245,10 @@ model TrainerProfile {
 model ClientProfile {
   id                String   @id @default(uuid()) @db.Uuid
   clientId          String   @unique @db.Uuid
-  age               Int
-  heightCm          Decimal
-  weightKg          Decimal
-  fitnessGoal       String
+  age               Int?
+  heightCm          Decimal?
+  weightKg          Decimal?
+  fitnessGoal       String?
   medicalConditions String?
   targetCalories    Float?
   targetProtein     Float?
@@ -337,7 +337,7 @@ model TrainerClientInvite {
   @@index([trainerId, clientPhone, status])
   @@index([clientPhone, status])
   @@index([usedByClientId])
-  @@index([inviteCodeId]) 
+  @@index([inviteCodeId])
 }
 
 model TrainerInviteCode {
@@ -493,11 +493,12 @@ model WorkoutItem {
 }
 
 model WorkoutCompletion {
-  id            String   @id @default(uuid()) @db.Uuid
-  workoutItemId String   @unique @db.Uuid
-  clientId      String   @db.Uuid
-  completedAt   DateTime @default(now())
-  note          String?
+  id             String   @id @default(uuid()) @db.Uuid
+  workoutItemId  String   @unique @db.Uuid
+  clientId       String   @db.Uuid
+  completedAt    DateTime @default(now())
+  loggedWeightKg Float?
+  note           String?
 
   workoutItem WorkoutItem @relation(fields: [workoutItemId], references: [id], onDelete: Cascade)
   client      User        @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -756,9 +757,9 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
 
-  @@index([conversationId])
+  @@index([conversationId, createdAt])
   @@index([senderId])
-  @@index([isRead])
+  @@index([conversationId, isRead])
 }
 
 model Transaction {

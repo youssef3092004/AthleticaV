@@ -25,6 +25,22 @@ const canManageAnyProfile = (user) => {
   );
 };
 
+const toNullableInput = (value) => {
+  if (value === undefined || value === null) return value;
+  if (typeof value === "string" && value.trim() === "") return null;
+  return value;
+};
+
+const buildProfileInput = (payload = {}) => {
+  return {
+    age: toNullableInput(payload.age),
+    heightCm: toNullableInput(payload.heightCm),
+    weightKg: toNullableInput(payload.weightKg),
+    fitnessGoal: toNullableInput(payload.fitnessGoal),
+    medicalConditions: toNullableInput(payload.medicalConditions),
+  };
+};
+
 /**
  * Create or update a client profile
  * Clients can only edit their own; trainers/admins can edit any
@@ -32,8 +48,6 @@ const canManageAnyProfile = (user) => {
 export const upsertClientProfile = async (req, res, next) => {
   try {
     const { userId: clientId } = req.params;
-    const { age, heightCm, weightKg, fitnessGoal, medicalConditions } =
-      req.body;
 
     if (!clientId) {
       return next(new AppError("User ID is required", 400));
@@ -60,13 +74,7 @@ export const upsertClientProfile = async (req, res, next) => {
     }
 
     // Validate input data
-    const inputData = {
-      age,
-      heightCm,
-      weightKg,
-      fitnessGoal,
-      medicalConditions,
-    };
+    const inputData = buildProfileInput(req.body);
 
     const validation = validateClientProfileData(inputData);
     if (!validation.valid) {
@@ -318,7 +326,8 @@ export const batchUpdateClientProfiles = async (req, res, next) => {
         continue;
       }
 
-      const validation = validateClientProfileData(profileData);
+      const inputData = buildProfileInput(profileData);
+      const validation = validateClientProfileData(inputData);
       if (!validation.valid) {
         results.push({
           clientId: targetClientId,
@@ -329,7 +338,7 @@ export const batchUpdateClientProfiles = async (req, res, next) => {
       }
 
       try {
-        const normalized = normalizeClientProfileData(profileData);
+        const normalized = normalizeClientProfileData(inputData);
         const updated = await prisma.clientProfile.upsert({
           where: { clientId: targetClientId },
           update: normalized,

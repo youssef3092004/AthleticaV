@@ -1,13 +1,28 @@
 import "dotenv/config";
 import process from "process";
+import http from "http";
 import express from "express";
+import { Server } from "socket.io";
 import { connectDB } from "./configs/db.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { initializeWebSocket } from "./utils/websocket.js";
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
+
+// Create HTTP server with Socket.IO
+const httpServer = http.createServer(app);
+export const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "*",
+    credentials: true,
+  },
+});
+
+// Initialize WebSocket handlers
+initializeWebSocket(io);
 
 // database connection
 
@@ -46,6 +61,8 @@ import mealCompletionRoutes from "./routes/mealCompletion.js";
 import clientIntakeRoutes from "./routes/clientIntake.js";
 import trainerClientInviteRoutes from "./routes/trainerClientInvite.js";
 import trainerInviteCodeRoutes from "./routes/trainerInviteCode.js";
+import messageRoutes from "./routes/message.js";
+import conversationRoutes from "./routes/conversation.js";
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
@@ -76,10 +93,13 @@ app.use("/api/v1/meal-completions", mealCompletionRoutes);
 app.use("/api/v1/client-intake", clientIntakeRoutes);
 app.use("/api/v1/client-invites", trainerClientInviteRoutes);
 app.use("/api/v1/trainer-invite-codes", trainerInviteCodeRoutes);
+app.use("/api/v1/conversations", conversationRoutes);
+app.use("/api/v1/messages", messageRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`WebSocket ready for real-time messaging`);
 });

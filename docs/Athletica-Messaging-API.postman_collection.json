@@ -1,0 +1,433 @@
+{
+  "info": {
+    "name": "Athletica Messaging API",
+    "description": "WebSocket and REST API for messaging system",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login Trainer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ahmed@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login Client",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sara@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conversations",
+      "item": [
+        {
+          "name": "Get or Create Conversation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"otherUserId\": \"{{client_user_id}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations"]
+            }
+          }
+        },
+        {
+          "name": "Get All Conversations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Conversation Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations", "{{conversation_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Latest Message",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}/latest",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{conversation_id}}",
+                "latest"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Conversation with User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/with/{{client_user_id}}",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "with",
+                "{{client_user_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversationId\": \"{{conversation_id}}\",\n  \"body\": \"Great job on your workout today!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages"]
+            }
+          }
+        },
+        {
+          "name": "Get Messages (Paginated)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{conversation_id}}?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages", "{{conversation_id}}"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark Message as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{message_id}}/read",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages", "{{message_id}}", "read"]
+            }
+          }
+        },
+        {
+          "name": "Mark Conversation as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{client_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/conversation/{{conversation_id}}/read-all",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "conversation",
+                "{{conversation_id}}",
+                "read-all"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Message",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{message_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages", "{{message_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Cases",
+      "item": [
+        {
+          "name": "Missing Auth Header",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations"]
+            }
+          }
+        },
+        {
+          "name": "Invalid Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer invalid.token.here"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations"]
+            }
+          }
+        },
+        {
+          "name": "Empty Message Body",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversationId\": \"{{conversation_id}}\",\n  \"body\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "messages"]
+            }
+          }
+        },
+        {
+          "name": "Non-existent Conversation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/fake-uuid-that-does-not-exist",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "fake-uuid-that-does-not-exist"
+              ]
+            }
+          }
+        },
+        {
+          "name": "No Access to Conversation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{trainer_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "conversations", "{{conversation_id}}"]
+            }
+          },
+          "description": "Replace trainer_token with a different trainer's token who doesn't have access"
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "trainer_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT token from trainer login"
+    },
+    {
+      "key": "client_token",
+      "value": "",
+      "type": "string",
+      "description": "JWT token from client login"
+    },
+    {
+      "key": "trainer_user_id",
+      "value": "",
+      "type": "string",
+      "description": "User ID of trainer (Ahmed)"
+    },
+    {
+      "key": "client_user_id",
+      "value": "",
+      "type": "string",
+      "description": "User ID of client (Sara)"
+    },
+    {
+      "key": "conversation_id",
+      "value": "",
+      "type": "string",
+      "description": "ID from create conversation response"
+    },
+    {
+      "key": "message_id",
+      "value": "",
+      "type": "string",
+      "description": "ID from send message response"
+    }
+  ]
+}

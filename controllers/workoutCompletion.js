@@ -40,6 +40,26 @@ const parseOptionalDateTime = (value, fieldName) => {
   return parsed;
 };
 
+const parseOptionalWeightKg = (value, fieldName = "loggedWeightKg") => {
+  if (value === undefined) return undefined;
+  if (value === null || String(value).trim() === "") return null;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new AppError(`${fieldName} must be a valid number`, 400);
+  }
+
+  if (parsed < 0) {
+    throw new AppError(`${fieldName} must be greater than or equal to 0`, 400);
+  }
+
+  if (parsed > 1000) {
+    throw new AppError(`${fieldName} must be less than or equal to 1000`, 400);
+  }
+
+  return Number(parsed.toFixed(2));
+};
+
 const ensureOwnOrPrivileged = (req, trainerId, clientId) => {
   if (canManageAnyWorkoutCompletion(req.user)) return true;
 
@@ -136,6 +156,7 @@ const COMPLETION_SELECT = {
   workoutItemId: true,
   clientId: true,
   completedAt: true,
+  loggedWeightKg: true,
   note: true,
   workoutItem: {
     select: {
@@ -170,6 +191,7 @@ export const upsertWorkoutCompletion = async (req, res, next) => {
       req.body.completedAt,
       "completedAt",
     );
+    const loggedWeightKg = parseOptionalWeightKg(req.body.loggedWeightKg);
     const note = sanitizeOptionalString(req.body.note, "note", 1000);
 
     const existing = await prisma.workoutCompletion.findUnique({
@@ -189,6 +211,7 @@ export const upsertWorkoutCompletion = async (req, res, next) => {
     const data = {
       clientId: String(context.clientId),
       ...(completedAt !== undefined ? { completedAt } : {}),
+      ...(loggedWeightKg !== undefined ? { loggedWeightKg } : {}),
       ...(note !== undefined ? { note } : {}),
     };
 
@@ -346,6 +369,10 @@ export const updateWorkoutCompletionById = async (req, res, next) => {
 
     if (req.body.note !== undefined) {
       data.note = sanitizeOptionalString(req.body.note, "note", 1000);
+    }
+
+    if (req.body.loggedWeightKg !== undefined) {
+      data.loggedWeightKg = parseOptionalWeightKg(req.body.loggedWeightKg);
     }
 
     if (Object.keys(data).length === 0) {

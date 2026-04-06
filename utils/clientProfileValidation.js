@@ -30,17 +30,22 @@ const VALIDATION_RULES = {
   },
 };
 
+const isEmptyInput = (value) => {
+  return value === undefined || value === null || value === "";
+};
+
 /**
  * Validate age value
  * @param {number} age - Age to validate
  * @returns {object} {valid, error}
  */
 export const validateAge = (age) => {
-  if (age !== undefined && age !== null) {
+  if (!isEmptyInput(age)) {
+    const parsed = Number(age);
     if (
-      !Number.isInteger(age) ||
-      age < VALIDATION_RULES.age.min ||
-      age > VALIDATION_RULES.age.max
+      !Number.isInteger(parsed) ||
+      parsed < VALIDATION_RULES.age.min ||
+      parsed > VALIDATION_RULES.age.max
     ) {
       return {
         valid: false,
@@ -57,7 +62,7 @@ export const validateAge = (age) => {
  * @returns {object} {valid, error}
  */
 export const validateHeightCm = (heightCm) => {
-  if (heightCm !== undefined && heightCm !== null) {
+  if (!isEmptyInput(heightCm)) {
     const num = Number(heightCm);
     if (
       Number.isNaN(num) ||
@@ -79,7 +84,7 @@ export const validateHeightCm = (heightCm) => {
  * @returns {object} {valid, error}
  */
 export const validateWeightKg = (weightKg) => {
-  if (weightKg !== undefined && weightKg !== null) {
+  if (!isEmptyInput(weightKg)) {
     const num = Number(weightKg);
     if (
       Number.isNaN(num) ||
@@ -101,7 +106,7 @@ export const validateWeightKg = (weightKg) => {
  * @returns {object} {valid, error}
  */
 export const validateFitnessGoal = (fitnessGoal) => {
-  if (fitnessGoal !== undefined && fitnessGoal !== null) {
+  if (!isEmptyInput(fitnessGoal)) {
     const str = String(fitnessGoal).trim();
     if (!str) {
       return { valid: true }; // Empty is allowed (optional)
@@ -125,7 +130,7 @@ export const validateFitnessGoal = (fitnessGoal) => {
  * @returns {object} {valid, error}
  */
 export const validateMedicalConditions = (medicalConditions) => {
-  if (medicalConditions !== undefined && medicalConditions !== null) {
+  if (!isEmptyInput(medicalConditions)) {
     const str = String(medicalConditions).trim();
     if (str.length > VALIDATION_RULES.medicalConditions.maxLength) {
       return {
@@ -145,35 +150,35 @@ export const validateMedicalConditions = (medicalConditions) => {
 export const validateClientProfileData = (data) => {
   const errors = {};
 
-  if (data.age !== undefined && data.age !== null) {
+  if (!isEmptyInput(data.age)) {
     const ageValidation = validateAge(data.age);
     if (!ageValidation.valid) {
       errors.age = ageValidation.error;
     }
   }
 
-  if (data.heightCm !== undefined && data.heightCm !== null) {
+  if (!isEmptyInput(data.heightCm)) {
     const heightValidation = validateHeightCm(data.heightCm);
     if (!heightValidation.valid) {
       errors.heightCm = heightValidation.error;
     }
   }
 
-  if (data.weightKg !== undefined && data.weightKg !== null) {
+  if (!isEmptyInput(data.weightKg)) {
     const weightValidation = validateWeightKg(data.weightKg);
     if (!weightValidation.valid) {
       errors.weightKg = weightValidation.error;
     }
   }
 
-  if (data.fitnessGoal !== undefined && data.fitnessGoal !== null) {
+  if (!isEmptyInput(data.fitnessGoal)) {
     const goalValidation = validateFitnessGoal(data.fitnessGoal);
     if (!goalValidation.valid) {
       errors.fitnessGoal = goalValidation.error;
     }
   }
 
-  if (data.medicalConditions !== undefined && data.medicalConditions !== null) {
+  if (!isEmptyInput(data.medicalConditions)) {
     const medicalValidation = validateMedicalConditions(data.medicalConditions);
     if (!medicalValidation.valid) {
       errors.medicalConditions = medicalValidation.error;
@@ -194,26 +199,38 @@ export const validateClientProfileData = (data) => {
 export const normalizeClientProfileData = (data) => {
   const normalized = {};
 
-  if (data.age !== undefined && data.age !== null) {
-    normalized.age = Number(data.age);
+  if (Object.prototype.hasOwnProperty.call(data, "age")) {
+    if (isEmptyInput(data.age)) {
+      normalized.age = null;
+    } else {
+      normalized.age = Number(data.age);
+    }
   }
 
-  if (data.heightCm !== undefined && data.heightCm !== null) {
-    normalized.heightCm = data.heightCm; // Decimal handled by Prisma
+  if (Object.prototype.hasOwnProperty.call(data, "heightCm")) {
+    normalized.heightCm = isEmptyInput(data.heightCm) ? null : data.heightCm; // Decimal handled by Prisma
   }
 
-  if (data.weightKg !== undefined && data.weightKg !== null) {
-    normalized.weightKg = data.weightKg; // Decimal handled by Prisma
+  if (Object.prototype.hasOwnProperty.call(data, "weightKg")) {
+    normalized.weightKg = isEmptyInput(data.weightKg) ? null : data.weightKg; // Decimal handled by Prisma
   }
 
-  if (data.fitnessGoal !== undefined && data.fitnessGoal !== null) {
-    const str = String(data.fitnessGoal).trim();
-    normalized.fitnessGoal = str || null;
+  if (Object.prototype.hasOwnProperty.call(data, "fitnessGoal")) {
+    if (isEmptyInput(data.fitnessGoal)) {
+      normalized.fitnessGoal = null;
+    } else {
+      const str = String(data.fitnessGoal).trim();
+      normalized.fitnessGoal = str || null;
+    }
   }
 
-  if (data.medicalConditions !== undefined && data.medicalConditions !== null) {
-    const str = String(data.medicalConditions).trim();
-    normalized.medicalConditions = str || null;
+  if (Object.prototype.hasOwnProperty.call(data, "medicalConditions")) {
+    if (isEmptyInput(data.medicalConditions)) {
+      normalized.medicalConditions = null;
+    } else {
+      const str = String(data.medicalConditions).trim();
+      normalized.medicalConditions = str || null;
+    }
   }
 
   return normalized;
