@@ -259,55 +259,75 @@ export const getCoachWowMoment = async (req, res, next) => {
       trainerIdFromQuery,
     );
 
-    const [latestWorkout, mealPlan, latestCoachMessage] = await Promise.all([
-      prisma.workout.findFirst({
-        where: {
-          trainerId,
-          clientId,
-        },
-        orderBy: [{ endDate: "desc" }, { startDate: "desc" }],
-        select: {
-          id: true,
-          startDate: true,
-          endDate: true,
-          totalCount: true,
-          completedCount: true,
-        },
-      }),
-      prisma.mealPlan.findFirst({
-        where: {
-          trainerId,
-          clientProfile: {
-            clientId,
-          },
-        },
-        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
-        select: {
-          id: true,
-          status: true,
-          totalCount: true,
-          completedCount: true,
-          startDate: true,
-          endDate: true,
-        },
-      }),
-      prisma.message.findFirst({
-        where: {
-          senderId: trainerId,
-          conversation: {
+    const [latestWorkoutResult, mealPlanResult, latestCoachMessageResult] =
+      await Promise.allSettled([
+        prisma.workout.findFirst({
+          where: {
             trainerId,
             clientId,
           },
-        },
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          conversationId: true,
-          body: true,
-          createdAt: true,
-        },
-      }),
-    ]);
+          orderBy: [{ endDate: "desc" }, { startDate: "desc" }],
+          select: {
+            id: true,
+            startDate: true,
+            endDate: true,
+            totalCount: true,
+            completedCount: true,
+          },
+        }),
+        prisma.mealPlan.findFirst({
+          where: {
+            trainerId,
+            clientProfile: {
+              clientId,
+            },
+          },
+          orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+          select: {
+            id: true,
+            status: true,
+            totalCount: true,
+            completedCount: true,
+            startDate: true,
+            endDate: true,
+          },
+        }),
+        prisma.message.findFirst({
+          where: {
+            senderId: trainerId,
+            conversation: {
+              trainerId,
+              clientId,
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            conversationId: true,
+            body: true,
+            createdAt: true,
+          },
+        }),
+      ]);
+
+    const sectionStatus = {
+      workout: latestWorkoutResult.status === "fulfilled" ? "ok" : "error",
+      meals: mealPlanResult.status === "fulfilled" ? "ok" : "error",
+      latestCoachMessage:
+        latestCoachMessageResult.status === "fulfilled" ? "ok" : "error",
+      loggedWeights: "ok",
+    };
+
+    const latestWorkout =
+      latestWorkoutResult.status === "fulfilled"
+        ? latestWorkoutResult.value
+        : null;
+    const mealPlan =
+      mealPlanResult.status === "fulfilled" ? mealPlanResult.value : null;
+    const latestCoachMessage =
+      latestCoachMessageResult.status === "fulfilled"
+        ? latestCoachMessageResult.value
+        : null;
 
     const workoutCompletionPercentage = latestWorkout
       ? calculateCompletionPercentage(
@@ -332,8 +352,10 @@ export const getCoachWowMoment = async (req, res, next) => {
         )
       : 0;
 
-    const loggedWeightRows = latestWorkout
-      ? await prisma.workoutCompletion.findMany({
+    let loggedWeightRows = [];
+    if (latestWorkout) {
+      try {
+        loggedWeightRows = await prisma.workoutCompletion.findMany({
           where: {
             clientId,
             loggedWeightKg: { not: null },
@@ -359,8 +381,12 @@ export const getCoachWowMoment = async (req, res, next) => {
               },
             },
           },
-        })
-      : [];
+        });
+      } catch {
+        loggedWeightRows = [];
+        sectionStatus.loggedWeights = "error";
+      }
+    }
 
     const seenExerciseIds = new Set();
     const loggedWeights = [];
@@ -379,6 +405,8 @@ export const getCoachWowMoment = async (req, res, next) => {
         workoutItemId: row.workoutItemId,
       });
     }
+
+    const isPartial = Object.values(sectionStatus).includes("error");
 
     return res.status(200).json({
       success: true,
@@ -416,6 +444,10 @@ export const getCoachWowMoment = async (req, res, next) => {
               createdAt: latestCoachMessage.createdAt,
             }
           : null,
+      },
+      meta: {
+        partial: isPartial,
+        sectionStatus,
       },
     });
   } catch (error) {

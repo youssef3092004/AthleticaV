@@ -13,6 +13,7 @@ import {
 } from "../utils/clientProfileValidation.js";
 import { AppError } from "../utils/appError.js";
 import jwt from "jsonwebtoken";
+import { buildRoleIdentityContext } from "../utils/authz.js";
 
 // ============ CONSTANTS ============
 const ROLE_IDS = {
@@ -294,6 +295,17 @@ export const clientRegister = async (req, res, next) => {
           id: clientRole.id,
           name: clientRole.name,
         },
+        activation: isInviteSignup
+          ? {
+              flow: "MANUAL_TRAINER_APPROVAL",
+              requiresTrainerApproval: true,
+              status: "PENDING",
+            }
+          : {
+              flow: "DIRECT_LOGIN",
+              requiresTrainerApproval: false,
+              status: "ACTIVE",
+            },
         clientProfile: { data: registration.user.clientProfile || null },
         invite: registration.inviteHistory
           ? {
@@ -742,7 +754,7 @@ export const login = async (req, res, next) => {
     }
 
     const roleArray = Array.from(roleNames);
-    const permissionsArray = Array.from(permissions);
+    const roleIdentity = buildRoleIdentityContext(user.id, roleArray);
 
     // Generate token with optimized payload
     const token = jwt.sign(
@@ -750,24 +762,42 @@ export const login = async (req, res, next) => {
         id: user.id,
         userId: user.id,
         roles: roleArray,
-        permissions: permissionsArray,
+        roleName: roleArray[0] || null,
         isAdmin: roleArray.includes("ADMIN"),
+        ...roleIdentity,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN },
     );
 
-    // Build safe user response (exclude password)
-    const safeUser = Object.fromEntries(
-      Object.entries(user).filter(([key]) => key !== "password"),
-    );
+    // Build safe user response (exclude password and internal permission graph)
+    const safeUser = {
+      id: user.id,
+      name: user.name,
+      phone: user.phone,
+      email: user.email,
+      profileImage: user.profileImage,
+      isVerified: user.isVerified,
+      subscriptions: user.subscriptions,
+      userRoles: user.userRoles.map((entry) => ({
+        roleId: entry.roleId,
+        role: entry.role
+          ? {
+              id: entry.role.id,
+              name: entry.role.name,
+            }
+          : null,
+      })),
+    };
 
     return res.status(200).json({
       status: "success",
       token,
       data: {
         ...safeUser,
+        ...roleIdentity,
         roles: roleArray,
+        roleName: roleArray[0] || null,
       },
     });
   } catch (error) {

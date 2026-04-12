@@ -2,6 +2,34 @@ import { prisma } from "../configs/db.js";
 import { AppError } from "./appError.js";
 
 const PRIVILEGED_ROLES = new Set(["OWNER", "DEVELOPER", "ADMIN"]);
+const ROLE_ID_FIELDS = {
+  OWNER: "ownerId",
+  DEVELOPER: "developerId",
+  ADMIN: "adminId",
+  TRAINER: "trainerId",
+  CLIENT: "clientId",
+  SUPPORT: "supportId",
+};
+
+export const normalizeRoleNames = (roles = []) => {
+  return [
+    ...new Set(roles.filter(Boolean).map((role) => String(role).toUpperCase())),
+  ];
+};
+
+export const buildRoleIdentityContext = (userId, roles = []) => {
+  const normalizedRoles = normalizeRoleNames(roles);
+  const identity = {
+    userId,
+    primaryRole: normalizedRoles[0] || null,
+  };
+
+  for (const [roleName, fieldName] of Object.entries(ROLE_ID_FIELDS)) {
+    identity[fieldName] = normalizedRoles.includes(roleName) ? userId : null;
+  }
+
+  return identity;
+};
 
 export const getUserIdFromRequest = (req) =>
   req.user?.id || req.user?.userId || req.user?.sub || null;
@@ -36,10 +64,12 @@ export const getUserAccessContext = async (req) => {
     .map((entry) => entry.role?.name)
     .filter(Boolean)
     .map((name) => String(name).toUpperCase());
+  const identity = buildRoleIdentityContext(userId, roles);
 
   return {
     userId,
     roles,
+    ...identity,
     isPrivileged: roles.some((role) => PRIVILEGED_ROLES.has(role)),
   };
 };

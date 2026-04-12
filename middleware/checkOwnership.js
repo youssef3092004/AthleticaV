@@ -6,6 +6,9 @@ const getUserId = (req) =>
 
 const getUserRoles = (req) => {
   const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
+  if (req.user?.primaryRole && !roles.includes(req.user.primaryRole)) {
+    roles.push(req.user.primaryRole);
+  }
   if (req.user?.roleName && !roles.includes(req.user.roleName)) {
     roles.push(req.user.roleName);
   }

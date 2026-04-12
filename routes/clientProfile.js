@@ -9,6 +9,7 @@ import {
 } from "../controllers/clientProfile.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
+import { checkOwnership } from "../middleware/checkOwnership.js";
 
 const router = Router();
 
@@ -22,10 +23,19 @@ router.get("/me", verifyToken, getMyClientProfile);
  * Create or update a client profile
  * Clients can update their own profile; admins can update any profile
  */
-router.put(
+router.patch(
   "/:userId",
   verifyToken,
   checkPermission("UPDATE-CLIENT-PROFILES"),
+  checkOwnership({ paramKey: "userId" }),
+  upsertClientProfile,
+);
+
+router.patch(
+  "/update/:userId",
+  verifyToken,
+  checkPermission("UPDATE-CLIENT-PROFILES"),
+  checkOwnership({ paramKey: "userId" }),
   upsertClientProfile,
 );
 
@@ -33,7 +43,12 @@ router.put(
  * Get a specific client profile by user ID
  * Clients can view their own; admins can view any
  */
-router.get("/:userId", verifyToken, getClientProfile);
+router.get(
+  "/:userId",
+  verifyToken,
+  checkOwnership({ paramKey: "userId" }),
+  getClientProfile,
+);
 
 /**
  * Get all client profiles (admin/developer only)
@@ -53,6 +68,7 @@ router.delete(
   "/:userId",
   verifyToken,
   checkPermission("DELETE-CLIENT-PROFILES"),
+  checkOwnership({ paramKey: "userId" }),
   deleteClientProfile,
 );
 

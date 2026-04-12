@@ -19,7 +19,7 @@ router.post(
   createExercise,
 );
 router.get(
-  "/getAll/:trainerId",
+  "/getAll",
   verifyToken,
   checkPermission("VIEW-EXERCISES"),
   getAllExercises,

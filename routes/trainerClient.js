@@ -12,6 +12,7 @@ import {
 } from "../controllers/trainerClient.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
+import { checkOwnership } from "../middleware/checkOwnership.js";
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.post(
   "/create",
   verifyToken,
   checkPermission("CREATE-TRAINER-CLIENTS"),
+  checkOwnership({ paramKey: "trainerId" }),
   createTrainerClient,
 );
 router.get(
@@ -31,36 +33,67 @@ router.get(
   "/getAllByTrainerId/:trainerId",
   verifyToken,
   checkPermission("VIEW-TRAINER-CLIENTS"),
+  checkOwnership({ paramKey: "trainerId" }),
   getAllTrainerClientsByTrainerId,
 );
 router.get(
   "/getById/:id",
   verifyToken,
   checkPermission("VIEW-TRAINER-CLIENTS"),
+  checkOwnership({
+    model: "trainerClient",
+    idField: "id",
+    ownerFields: ["trainerId", "clientId"],
+    paramKey: "id",
+  }),
   getTrainerClientById,
 );
 router.patch(
   "/updateStatusToPaused/:id",
   verifyToken,
   checkPermission("UPDATE-TRAINER-CLIENTS"),
+  checkOwnership({
+    model: "trainerClient",
+    idField: "id",
+    ownerFields: ["trainerId", "clientId"],
+    paramKey: "id",
+  }),
   updateStatusToPaused,
 );
 router.patch(
   "/updateStatusToEnded/:id",
   verifyToken,
   checkPermission("UPDATE-TRAINER-CLIENTS"),
+  checkOwnership({
+    model: "trainerClient",
+    idField: "id",
+    ownerFields: ["trainerId", "clientId"],
+    paramKey: "id",
+  }),
   updateStatusToEnded,
 );
 router.patch(
   "/updateStatusToActive/:id",
   verifyToken,
   checkPermission("UPDATE-TRAINER-CLIENTS"),
+  checkOwnership({
+    model: "trainerClient",
+    idField: "id",
+    ownerFields: ["trainerId", "clientId"],
+    paramKey: "id",
+  }),
   updateStatusToActive,
 );
 router.delete(
   "/deleteById/:id",
   verifyToken,
   checkPermission("DELETE-TRAINER-CLIENTS"),
+  checkOwnership({
+    model: "trainerClient",
+    idField: "id",
+    ownerFields: ["trainerId", "clientId"],
+    paramKey: "id",
+  }),
   deleteTrainerClientById,
 );
 router.delete(

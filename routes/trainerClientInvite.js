@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   approveTrainerClientInviteByClientId,
   getTrainerClientInvites,
+  searchTrainersByEmailNameOrCode,
   verifyTrainerClientInvite,
 } from "../controllers/trainerClientInvite.js";
 import { verifyToken } from "../middleware/auth.js";
@@ -22,6 +23,8 @@ router.post(
   checkPermission("CREATE-TRAINER-CLIENTS"),
   approveTrainerClientInviteByClientId,
 );
+
+router.get("/search/trainers", searchTrainersByEmailNameOrCode);
 
 router.get("/verify/:code", verifyTrainerClientInvite);
 

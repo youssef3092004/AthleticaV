@@ -2,10 +2,15 @@ import process from "process";
 import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
 import { pagination } from "../utils/pagination.js";
+import { getCache, makeCacheKey, setCache } from "../utils/cache.js";
 
 const INVITE_CODE_PREFIX = "ATHLI";
 const INVITE_SEQUENCE_START = 100;
 const TRAINER_NAME_CODE_MAX_LENGTH = 20;
+const TRAINER_SEARCH_DEFAULT_LIMIT = 10;
+const TRAINER_SEARCH_MAX_LIMIT = 20;
+const TRAINER_SEARCH_MIN_TEXT_LENGTH = 2;
+const TRAINER_SEARCH_CACHE_TTL_MS = 60 * 1000;
 
 const ALLOWED_STATUSES = new Set([
   "PENDING",
@@ -49,6 +54,26 @@ const INVITE_CODE_SELECT = {
   trainerId: true,
   code: true,
   totalClients: true,
+};
+
+const TRAINER_SEARCH_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  profileImage: true,
+  trainerProfile: {
+    select: {
+      isVerified: true,
+      rating: true,
+      yearsExperience: true,
+    },
+  },
+  inviteCodeAsTrainer: {
+    select: {
+      code: true,
+      totalClients: true,
+    },
+  },
 };
 
 const toInviteResponse = (invite) => {
@@ -103,6 +128,25 @@ const normalizeInviteCode = (value) =>
   String(value || "")
     .trim()
     .toUpperCase();
+
+const normalizeSearchTerm = (value) => String(value || "").trim();
+
+const normalizeSearchText = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+const looksLikeEmail = (value) => /@/.test(String(value || ""));
+
+const toTrainerSearchResponse = (row) => ({
+  id: row.id,
+  name: row.name,
+  email: row.email,
+  profileImage: row.profileImage,
+  inviteCode: row.inviteCodeAsTrainer?.code || null,
+  totalClients: row.inviteCodeAsTrainer?.totalClients ?? 0,
+  trainerProfile: row.trainerProfile || null,
+});
 
 const normalizeCodeToken = (value) =>
   String(value || "")
@@ -404,6 +448,171 @@ export const verifyTrainerClientInvite = async (req, res, next) => {
   }
 };
 
+export const searchTrainersByEmailNameOrCode = async (req, res, next) => {
+  try {
+    const qInput = normalizeSearchText(req.query.q);
+    const nameInput = normalizeSearchText(req.query.name);
+    const emailInput = normalizeSearchText(req.query.email);
+    const codeInput = normalizeSearchText(req.query.code);
+
+    let nameTerm = nameInput;
+    let emailTerm = emailInput;
+    let codeTerm = codeInput ? normalizeInviteCode(codeInput) : "";
+
+    if (qInput) {
+      if (!nameTerm && !emailTerm && !codeTerm) {
+        if (looksLikeEmail(qInput)) {
+          emailTerm = qInput;
+        } else {
+          nameTerm = qInput;
+        }
+      }
+    }
+
+    if (!nameTerm && !emailTerm && !codeTerm) {
+      return next(
+        new AppError("Provide at least one of q, name, email, or code", 400),
+      );
+    }
+
+    if (nameTerm && nameTerm.length < TRAINER_SEARCH_MIN_TEXT_LENGTH) {
+      return next(
+        new AppError(
+          `name must be at least ${TRAINER_SEARCH_MIN_TEXT_LENGTH} characters`,
+          400,
+        ),
+      );
+    }
+
+    if (emailTerm && emailTerm.length < TRAINER_SEARCH_MIN_TEXT_LENGTH) {
+      return next(
+        new AppError(
+          `email must be at least ${TRAINER_SEARCH_MIN_TEXT_LENGTH} characters`,
+          400,
+        ),
+      );
+    }
+
+    const parsedLimit = Number(req.query.limit);
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(Math.floor(parsedLimit), 1), TRAINER_SEARCH_MAX_LIMIT)
+      : TRAINER_SEARCH_DEFAULT_LIMIT;
+
+    const cacheKey = makeCacheKey([
+      "search-trainers",
+      {
+        nameTerm,
+        emailTerm,
+        codeTerm,
+        limit,
+      },
+    ]);
+
+    const cached = getCache(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
+    const trainerRoleFilter = {
+      userRoles: {
+        some: {
+          role: {
+            name: "TRAINER",
+          },
+        },
+      },
+    };
+
+    const uniqueById = new Map();
+
+    if (codeTerm) {
+      const codeMatch = await prisma.trainerInviteCode.findUnique({
+        where: { code: codeTerm },
+        select: {
+          code: true,
+          totalClients: true,
+          trainer: {
+            select: TRAINER_SEARCH_SELECT,
+          },
+        },
+      });
+
+      if (codeMatch?.trainer) {
+        uniqueById.set(codeMatch.trainer.id, {
+          ...codeMatch.trainer,
+          inviteCodeAsTrainer: {
+            code: codeMatch.code,
+            totalClients: codeMatch.totalClients,
+          },
+        });
+      }
+    }
+
+    const orFilters = [];
+    if (emailTerm) {
+      orFilters.push({
+        email: {
+          contains: emailTerm,
+          mode: "insensitive",
+        },
+      });
+    }
+
+    if (nameTerm) {
+      orFilters.push({
+        name: {
+          contains: nameTerm,
+          mode: "insensitive",
+        },
+      });
+    }
+
+    if (orFilters.length) {
+      const trainers = await prisma.user.findMany({
+        where: {
+          ...trainerRoleFilter,
+          OR: orFilters,
+        },
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: TRAINER_SEARCH_SELECT,
+      });
+
+      for (const trainer of trainers) {
+        if (!uniqueById.has(trainer.id)) {
+          uniqueById.set(trainer.id, trainer);
+        }
+      }
+    }
+
+    const data = Array.from(uniqueById.values())
+      .slice(0, limit)
+      .map(toTrainerSearchResponse);
+
+    const responsePayload = {
+      success: true,
+      data,
+      meta: {
+        total: data.length,
+        limit,
+        query: {
+          name: nameTerm || null,
+          email: emailTerm || null,
+          code: codeTerm || null,
+        },
+      },
+    };
+
+    setCache(cacheKey, responsePayload, [], TRAINER_SEARCH_CACHE_TTL_MS);
+
+    return res.status(200).json(responsePayload);
+  } catch (error) {
+    return next(error);
+  }
+};
+
 export const approveTrainerClientInviteByClientId = async (req, res, next) => {
   try {
     const requesterId = getUserId(req);
@@ -422,6 +631,23 @@ export const approveTrainerClientInviteByClientId = async (req, res, next) => {
 
     if (!clientId) {
       return next(new AppError("clientId is required", 400));
+    }
+
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim();
+    const cacheKey = idempotencyKey
+      ? makeCacheKey([
+          "approve-trainer-client-invite",
+          trainerId,
+          clientId,
+          idempotencyKey,
+        ])
+      : null;
+
+    if (cacheKey) {
+      const cached = getCache(cacheKey);
+      if (cached) {
+        return res.status(200).json(cached);
+      }
     }
 
     ensureRequesterIsTrainerOrPrivileged(req, trainerId);
@@ -514,11 +740,17 @@ export const approveTrainerClientInviteByClientId = async (req, res, next) => {
       };
     });
 
-    return res.status(200).json({
+    const responsePayload = {
       success: true,
       message: "Client approved successfully",
       data: approval,
-    });
+    };
+
+    if (cacheKey) {
+      setCache(cacheKey, responsePayload, [], 5 * 60 * 1000);
+    }
+
+    return res.status(200).json(responsePayload);
   } catch (error) {
     return next(error);
   }

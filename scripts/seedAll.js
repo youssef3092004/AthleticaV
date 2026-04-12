@@ -5,6 +5,7 @@ const SEED_STEPS = [
   "seed:rbac",
   "seed:plans",
   "seed:foods",
+  "seed:exercises:file",
   "seed:workout",
   "seed:client-profile",
   "seed:conversation",

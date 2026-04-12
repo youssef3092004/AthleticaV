@@ -1,5 +1,9 @@
 import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
+import {
+  buildRoleIdentityContext,
+  normalizeRoleNames,
+} from "../utils/authz.js";
 
 const toArray = (value) => {
   if (!value) return [];
@@ -153,10 +157,11 @@ export const checkPermission = (required, requireBranchId = false) => {
         }
       }
 
-      const normalizedRoles = Array.from(roleNames);
+      const normalizedRoles = normalizeRoleNames(Array.from(roleNames));
       const isBypassUser = hasBypassRole(normalizedRoles);
       const isTrainer = normalizedRoles.includes("TRAINER");
       const isAdmin = normalizedRoles.includes("ADMIN");
+      const roleIdentity = buildRoleIdentityContext(userId, normalizedRoles);
 
       let branchId = null;
       if (requireBranchId) {
@@ -170,6 +175,7 @@ export const checkPermission = (required, requireBranchId = false) => {
 
       req.user = {
         ...req.user,
+        ...roleIdentity,
         roleName: normalizedRoles[0] || req.user?.roleName || null,
         roles: normalizedRoles,
         permissions: Array.from(rolePermissionKeys),

@@ -32,13 +32,29 @@ const toNullableInput = (value) => {
 };
 
 const buildProfileInput = (payload = {}) => {
-  return {
-    age: toNullableInput(payload.age),
-    heightCm: toNullableInput(payload.heightCm),
-    weightKg: toNullableInput(payload.weightKg),
-    fitnessGoal: toNullableInput(payload.fitnessGoal),
-    medicalConditions: toNullableInput(payload.medicalConditions),
-  };
+  const input = {};
+
+  if (Object.prototype.hasOwnProperty.call(payload, "age")) {
+    input.age = toNullableInput(payload.age);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "heightCm")) {
+    input.heightCm = toNullableInput(payload.heightCm);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "weightKg")) {
+    input.weightKg = toNullableInput(payload.weightKg);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "fitnessGoal")) {
+    input.fitnessGoal = toNullableInput(payload.fitnessGoal);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "medicalConditions")) {
+    input.medicalConditions = toNullableInput(payload.medicalConditions);
+  }
+
+  return input;
 };
 
 /**

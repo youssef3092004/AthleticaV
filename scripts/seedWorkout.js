@@ -68,6 +68,26 @@ const WORKOUT_ITEMS = [
   },
 ];
 
+const categoryToPrimaryMuscle = (category) => {
+  const normalized = String(category || "").toUpperCase();
+  if (normalized === "CHEST") return "chest";
+  if (normalized === "BACK") return "back";
+  if (normalized === "LEGS") return "quads";
+  if (normalized === "SHOULDERS") return "shoulders";
+  if (normalized === "ARMS") return "biceps";
+  if (normalized === "CORE") return "core";
+  if (normalized === "CARDIO") return "full body";
+  return "other";
+};
+
+const categoryToMovementPattern = (category) => {
+  const normalized = String(category || "").toUpperCase();
+  if (normalized === "CHEST" || normalized === "SHOULDERS") return "Push";
+  if (normalized === "BACK" || normalized === "ARMS") return "Pull";
+  if (normalized === "LEGS") return "Squat";
+  return "Other";
+};
+
 const ensureDatabaseEnv = () => {
   if (
     !process.env.PRISMA_URL &&
@@ -146,7 +166,7 @@ const ensureExercises = async (trainerId) => {
     const existing = await prisma.exercise.findFirst({
       where: {
         trainerId,
-        name: exercise.name,
+        name_en: exercise.name,
       },
     });
 
@@ -155,9 +175,23 @@ const ensureExercises = async (trainerId) => {
       (await prisma.exercise.create({
         data: {
           trainerId,
-          name: exercise.name,
-          category: exercise.category,
-          videoUrl: exercise.videoUrl,
+          name_en: exercise.name,
+          name_ar: null,
+          primary_muscle: categoryToPrimaryMuscle(exercise.category),
+          secondary_muscles: [],
+          equipment: "other",
+          difficulty: "beginner",
+          exercise_type: "strength",
+          classification: ["Compound"],
+          movement_pattern: categoryToMovementPattern(exercise.category),
+          fitness_goals: ["Strength"],
+          workout_location: "gym",
+          media_type: "video",
+          media_url: exercise.videoUrl,
+          video_url: exercise.videoUrl,
+          tags: [String(exercise.category || "").toLowerCase()],
+          is_default: false,
+          priority: "Important",
           instructions: exercise.instructions,
         },
       }));

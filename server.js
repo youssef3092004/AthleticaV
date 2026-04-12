@@ -3,12 +3,102 @@ import process from "process";
 import http from "http";
 import express from "express";
 import { Server } from "socket.io";
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
+import slowDown from "express-slow-down";
+import xss from "xss";
 import { connectDB } from "./configs/db.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { initializeWebSocket } from "./utils/websocket.js";
 
 const app = express();
+
+const sanitizeValue = (value) => {
+  if (typeof value === "string") return xss(value);
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    const sanitized = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      sanitized[key] = sanitizeValue(nestedValue);
+    }
+    return sanitized;
+  }
+
+  return value;
+};
+
+const sanitizeObjectInPlace = (target) => {
+  if (!target || typeof target !== "object") return target;
+
+  for (const [key, nestedValue] of Object.entries(target)) {
+    if (typeof nestedValue === "string") {
+      target[key] = xss(nestedValue);
+      continue;
+    }
+
+    if (Array.isArray(nestedValue)) {
+      target[key] = nestedValue.map((entry) => sanitizeValue(entry));
+      continue;
+    }
+
+    if (nestedValue && typeof nestedValue === "object") {
+      sanitizeObjectInPlace(nestedValue);
+    }
+  }
+
+  return target;
+};
+
+const rateLimitWindowMs = Number(
+  process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000,
+);
+const rateLimitMax = Number(process.env.RATE_LIMIT_MAX || 600);
+const slowDownAfter = Number(process.env.SLOW_DOWN_AFTER || 120);
+
+const apiLimiter = rateLimit({
+  windowMs: rateLimitWindowMs,
+  max: rateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests, please try again shortly.",
+  },
+});
+
+const apiSpeedLimiter = slowDown({
+  windowMs: rateLimitWindowMs,
+  delayAfter: slowDownAfter,
+  delayMs: (hits) => Math.min((hits - slowDownAfter + 1) * 50, 1000),
+});
+
+app.use(helmet());
+app.use(
+  cors({
+    origin: process.env.FRONTEND_URL
+      ? process.env.FRONTEND_URL.split(",").map((item) => item.trim())
+      : true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
+app.use((req, _res, next) => {
+  if (req.body && typeof req.body === "object") {
+    sanitizeObjectInPlace(req.body);
+  }
+
+  if (req.query && typeof req.query === "object") {
+    sanitizeObjectInPlace(req.query);
+  }
+
+  next();
+});
+app.use("/api/v1", apiSpeedLimiter, apiLimiter);
 
 const PORT = process.env.PORT || 3000;
 
@@ -63,6 +153,10 @@ import trainerClientInviteRoutes from "./routes/trainerClientInvite.js";
 import trainerInviteCodeRoutes from "./routes/trainerInviteCode.js";
 import messageRoutes from "./routes/message.js";
 import conversationRoutes from "./routes/conversation.js";
+import transactionRoutes from "./routes/transaction.js";
+import trainerWalletRoutes from "./routes/trainerWallet.js";
+import payoutRoutes from "./routes/payout.js";
+import activityLogRoutes from "./routes/activityLog.js";
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
@@ -95,11 +189,19 @@ app.use("/api/v1/client-invites", trainerClientInviteRoutes);
 app.use("/api/v1/trainer-invite-codes", trainerInviteCodeRoutes);
 app.use("/api/v1/conversations", conversationRoutes);
 app.use("/api/v1/messages", messageRoutes);
+app.use("/api/v1/transactions", transactionRoutes);
+app.use("/api/v1/trainer-wallets", trainerWalletRoutes);
+app.use("/api/v1/payouts", payoutRoutes);
+app.use("/api/v1/activity-logs", activityLogRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);
 
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`WebSocket ready for real-time messaging`);
-});
+if (process.env.VERCEL !== "1") {
+  httpServer.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`WebSocket ready for real-time messaging`);
+  });
+}
+
+export default app;

@@ -2,6 +2,10 @@ import jwt from "jsonwebtoken";
 import process from "process";
 import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
+import {
+  buildRoleIdentityContext,
+  normalizeRoleNames,
+} from "../utils/authz.js";
 
 export const verifyToken = async (req, res, next) => {
   try {
@@ -25,7 +29,17 @@ export const verifyToken = async (req, res, next) => {
     }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    req.user = decoded;
+    const roles = normalizeRoleNames(decoded.roles || []);
+    const userId = decoded.id || decoded.userId || decoded.sub || null;
+
+    req.user = {
+      ...decoded,
+      id: userId,
+      userId,
+      roles,
+      roleName: decoded.roleName || roles[0] || null,
+      ...buildRoleIdentityContext(userId, roles),
+    };
     next();
   } catch (err) {
     if (err.name === "TokenExpiredError") {

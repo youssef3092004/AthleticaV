@@ -2,6 +2,7 @@ import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
 import { pagination } from "../utils/pagination.js";
 import { getUserIdFromRequest } from "../utils/authz.js";
+import { getCache, makeCacheKey, setCache } from "../utils/cache.js";
 
 // Validation helpers
 const validateMessageBody = (body) => {
@@ -84,6 +85,148 @@ export const sendMessage = async (req, res, next) => {
     });
 
     res.status(201).json(message);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Quick-send from coach profile view without requiring conversationId from client
+export const quickSendMessageToClient = async (req, res, next) => {
+  try {
+    const trainerId = getUserIdFromRequest(req);
+    const clientId = String(req.params.clientId || "").trim();
+    const bodyText = validateMessageBody(req.body.body);
+    const idempotencyKey = String(req.headers["idempotency-key"] || "").trim();
+
+    const cacheKey = idempotencyKey
+      ? makeCacheKey([
+          "quick-send-message",
+          trainerId,
+          clientId,
+          idempotencyKey,
+        ])
+      : null;
+
+    if (cacheKey) {
+      const cached = getCache(cacheKey);
+      if (cached) {
+        return res.status(200).json(cached);
+      }
+    }
+
+    if (!clientId) {
+      throw new AppError("clientId is required", 400);
+    }
+
+    // Use consistent ID ordering to match getOrCreateConversation logic
+    const senderIdForConv = trainerId > clientId ? clientId : trainerId;
+    const otherId = trainerId > clientId ? trainerId : clientId;
+
+    const conversation = await prisma.conversation.upsert({
+      where: {
+        trainerId_clientId: {
+          trainerId: senderIdForConv,
+          clientId: otherId,
+        },
+      },
+      update: {},
+      create: {
+        trainerId: senderIdForConv,
+        clientId: otherId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const message = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        senderId: trainerId,
+        body: bodyText,
+        type: "TEXT",
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        senderId: true,
+        body: true,
+        type: true,
+        isRead: true,
+        createdAt: true,
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            profileImage: true,
+          },
+        },
+      },
+    });
+
+    const responsePayload = {
+      success: true,
+      data: message,
+    };
+
+    if (cacheKey) {
+      setCache(cacheKey, responsePayload, [], 5 * 60 * 1000);
+    }
+
+    res.status(201).json(responsePayload);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Latest coach message summary for client home
+export const getLatestCoachMessageForHome = async (req, res, next) => {
+  try {
+    const userId = getUserIdFromRequest(req);
+
+    const latestMessage = await prisma.message.findFirst({
+      where: {
+        senderId: { not: userId },
+        conversation: {
+          OR: [{ trainerId: userId }, { clientId: userId }],
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        senderId: true,
+        body: true,
+        createdAt: true,
+        sender: {
+          select: {
+            id: true,
+            name: true,
+            profileImage: true,
+          },
+        },
+      },
+    });
+
+    if (!latestMessage) {
+      return res.status(200).json({
+        success: true,
+        data: null,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        messageId: latestMessage.id,
+        conversationId: latestMessage.conversationId,
+        body: latestMessage.body,
+        createdAt: latestMessage.createdAt,
+        sender: latestMessage.sender,
+      },
+    });
   } catch (error) {
     next(error);
   }

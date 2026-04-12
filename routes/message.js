@@ -1,7 +1,9 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import {
+  getLatestCoachMessageForHome,
   sendMessage,
+  quickSendMessageToClient,
   getMessages,
   markMessageAsRead,
   markConversationAsRead,
@@ -12,6 +14,12 @@ const router = express.Router();
 
 // POST /api/v1/messages - Send a message
 router.post("/", verifyToken, sendMessage);
+
+// POST /api/v1/messages/quick-send/:clientId - Quick-send from coach profile view
+router.post("/quick-send/:clientId", verifyToken, quickSendMessageToClient);
+
+// GET /api/v1/messages/latest-for-home - Latest coach message summary for client home
+router.get("/latest-for-home", verifyToken, getLatestCoachMessageForHome);
 
 // PATCH /api/v1/messages/conversation/:conversationId/read-all - Must be before /:conversationId to avoid conflicts
 router.patch(

@@ -350,30 +350,43 @@ model TrainerInviteCode {
   invites TrainerClientInvite[]
 }
 
-enum Category {
-  CHEST
-  BACK
-  LEGS
-  ARMS
-  SHOULDERS
-  CORE
-  CARDIO
-}
-
 model Exercise {
-  id        String @id @default(uuid()) @db.Uuid
-  trainerId String @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  trainerId String? @db.Uuid
 
-  name         String
-  category     Category
-  videoUrl     String
-  instructions String?
-  createdAt    DateTime @default(now())
+  name_en           String   @map("name_en")
+  name_ar           String?
+  primary_muscle    String
+  secondary_muscles String[] @default([])
+  equipment         String
+  difficulty        String
+  exercise_type     String
+  classification    String[] @default([])
+  movement_pattern  String
+  fitness_goals     String[] @default([])
+  workout_location  String
+  media_type        String
+  media_url         String
+  video_url         String?
+  tags              String[] @default([])
+  is_default        Boolean  @default(false)
+  priority          String
+  instructions      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  trainer              User                  @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  trainer              User?                 @relation(fields: [trainerId], references: [id], onDelete: SetNull)
   workoutItems         WorkoutItem[]
   workoutTemplateItems WorkoutTemplateItem[]
 
+  @@index([name_en])
+  @@index([primary_muscle])
+  @@index([equipment])
+  @@index([difficulty])
+  @@index([exercise_type])
+  @@index([workout_location])
+  @@index([is_default])
+  @@index([priority])
   @@index([trainerId])
 }
 
@@ -766,9 +779,9 @@ model Transaction {
   id            String            @id @default(uuid()) @db.Uuid
   clientId      String            @db.Uuid
   trainerId     String            @db.Uuid
-  grossAmount   Float
-  platformFee   Float
-  trainerAmount Float
+  grossAmount   Decimal           @db.Decimal(12, 2)
+  platformFee   Decimal           @db.Decimal(12, 2)
+  trainerAmount Decimal           @db.Decimal(12, 2)
   currency      String
   status        TransactionStatus @default(PENDING)
   createdAt     DateTime          @default(now())
@@ -782,8 +795,8 @@ model Transaction {
 }
 
 model TrainerWallet {
-  trainerId String @id @db.Uuid
-  balance   Float  @default(0)
+  trainerId String  @id @db.Uuid
+  balance   Decimal @default(0) @db.Decimal(12, 2)
 
   trainer User @relation(fields: [trainerId], references: [id], onDelete: Cascade)
 }
@@ -791,7 +804,7 @@ model TrainerWallet {
 model Payout {
   id          String       @id @default(uuid()) @db.Uuid
   trainerId   String       @db.Uuid
-  amount      Float
+  amount      Decimal      @db.Decimal(12, 2)
   status      PayoutStatus @default(REQUESTED)
   requestedAt DateTime     @default(now())
   paidAt      DateTime?

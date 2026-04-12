@@ -33,36 +33,18 @@ export const getOrCreateConversation = async (req, res, next) => {
       throw new AppError("One or both users not found", 404);
     }
 
-    // Verify trainer-client relationship exists
-    const trainerClient = await prisma.trainerClient.findFirst({
-      where: {
-        OR: [
-          { trainerId: userId, clientId: otherUserId },
-          { trainerId: otherUserId, clientId: userId },
-        ],
-      },
-      select: { trainerId: true, clientId: true },
-    });
-
-    if (!trainerClient) {
-      throw new AppError(
-        "No trainer-client relationship found between these users",
-        403,
-      );
-    }
-
-    // Get or create conversation
+    // Get or create conversation between any two users
     const conversation = await prisma.conversation.upsert({
       where: {
         trainerId_clientId: {
-          trainerId: trainerClient.trainerId,
-          clientId: trainerClient.clientId,
+          trainerId: userId > otherUserId ? otherUserId : userId,
+          clientId: userId > otherUserId ? userId : otherUserId,
         },
       },
       update: {},
       create: {
-        trainerId: trainerClient.trainerId,
-        clientId: trainerClient.clientId,
+        trainerId: userId > otherUserId ? otherUserId : userId,
+        clientId: userId > otherUserId ? userId : otherUserId,
       },
       select: {
         id: true,
@@ -215,25 +197,37 @@ export const getUserConversations = async (req, res, next) => {
       }),
     ]);
 
-    // Enrich with unread counts (parallel fetch)
-    const conversationsWithUnread = await Promise.all(
-      conversations.map(async (conv) => {
-        const unreadCount = await prisma.message.count({
-          where: {
-            conversationId: conv.id,
-            senderId: { not: userId },
-            isRead: false,
-          },
-        });
+    const conversationIds = conversations.map((conv) => conv.id);
+    const unreadByConversationId = new Map();
 
-        return {
-          ...conv,
-          lastMessage: conv.messages[0] || null,
-          unreadCount,
-          messages: undefined,
-        };
-      }),
-    );
+    if (conversationIds.length > 0) {
+      const unreadRows = await prisma.message.groupBy({
+        by: ["conversationId"],
+        where: {
+          conversationId: {
+            in: conversationIds,
+          },
+          senderId: {
+            not: userId,
+          },
+          isRead: false,
+        },
+        _count: {
+          _all: true,
+        },
+      });
+
+      for (const row of unreadRows) {
+        unreadByConversationId.set(row.conversationId, row._count._all || 0);
+      }
+    }
+
+    const conversationsWithUnread = conversations.map((conv) => ({
+      ...conv,
+      lastMessage: conv.messages[0] || null,
+      unreadCount: unreadByConversationId.get(conv.id) || 0,
+      messages: undefined,
+    }));
 
     res.json({
       data: conversationsWithUnread,

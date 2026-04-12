@@ -1,493 +1,802 @@
-# AthleticaV — Project Documentation
+# AthleticaV - Fitness Coaching Platform API
 
-> A RESTful API backend for a fitness trainer-client platform built with **Node.js**, **Express v5**, **Prisma ORM**, and **PostgreSQL**.
-
-## Meal Planning API Docs
-
-- OpenAPI file for the new nutrition/meal endpoints: [docs/openapi.meals.yaml](docs/openapi.meals.yaml)
-- Covered groups: Foods, Meal Templates, Meal Plans, Progress
-- Includes request/response examples and auth requirements for:
-  - `GET /api/v1/foods`
-  - `POST /api/v1/foods`
-  - `GET /api/v1/foods/:id/portions`
-  - `POST /api/v1/templates`
-  - `GET /api/v1/templates`
-  - `POST /api/v1/templates/:id/days`
-  - `POST /api/v1/templates/:id/items`
-  - `POST /api/v1/meal-plans`
-  - `POST /api/v1/meal-plans/from-template`
-  - `GET /api/v1/meal-plans/:id`
-  - `GET /api/v1/clients/:id/meal-plans`
-  - `POST /api/v1/progress`
-  - `GET /api/v1/progress`
-
-## Prisma Migration Workflow
-
-- Full guide: [docs/prisma-migration-workflow.md](docs/prisma-migration-workflow.md)
-- Use local DB for development migrations:
-  - `npm run prisma:dev:migrate -- --name your_change`
-  - `npm run prisma:dev:status`
-- Use remote DB only for deploy:
-  - `npm run prisma:prod:deploy`
-
-Recommended env split:
-
-- `.env.local` -> local Postgres for fast `migrate dev`
-- `.env` -> shared/staging/prod DB for `migrate deploy`
-- Optional `PRISMA_MIGRATE_URL` -> direct (non-pooled) URL for safer/faster migrations
-
----
+A comprehensive REST API for managing fitness coaching relationships, meal planning, workout programming, and client-trainer interactions. Built with Node.js, Express, PostgreSQL, and Prisma.
 
 ## Table of Contents
 
-1. [Tech Stack](#tech-stack)
-2. [Project Structure](#project-structure)
-3. [Environment Variables](#environment-variables)
-4. [Database Schema (Prisma)](#database-schema-prisma)
-5. [RBAC System](#rbac-system)
-6. [API Endpoints](#api-endpoints)
-7. [Middleware](#middleware)
-8. [Utilities](#utilities)
-9. [What Is Done ✅](#what-is-done-)
-10. [What Remains ❌](#what-remains-)
+- [Overview](#overview)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Core Modules](#core-modules)
+- [Authentication & Authorization](#authentication--authorization)
+- [Complex Logic Documentation](#complex-logic-documentation)
+- [Database Schema](#database-schema)
+- [API Testing](#api-testing)
+- [Development](#development)
 
 ---
 
-## Tech Stack
+## Overview
 
-| Layer             | Technology                                               |
-| ----------------- | -------------------------------------------------------- |
-| Runtime           | Node.js (ESM, `"type": "module"`)                        |
-| Framework         | Express v5                                               |
-| ORM               | Prisma 7                                                 |
-| Database          | PostgreSQL                                               |
-| Auth              | JWT (`jsonwebtoken`) + bcrypt                            |
-| Validation        | `validator` + custom utils                               |
-| Caching           | In-memory Map (Redis installed, not yet wired)           |
-| File Uploads      | Multer + Cloudinary (installed, not yet wired)           |
-| Security packages | Helmet, CORS, express-rate-limit, express-slow-down, xss |
-| Seeding           | `scripts/seedRbac.js` → `npm run seed:rbac`              |
+AthleticaV is a multi-tenant fitness platform supporting several user roles:
+
+- **Trainers**: Create and manage workout plans, meal plans, and client relationships
+- **Clients**: Receive coaching, log meals and workouts, track progress
+- **Admins**: Manage system-level settings and user permissions
+- **Developers**: Integrate external tools via API
+- **Support**: Assist users with platform issues
+
+**Key Features:**
+
+- 🏋️ Workout templating and programming
+- 🍽️ Meal plan creation and tracking
+- 💬 Real-time messaging (WebSocket support)
+- 📊 Progress tracking with metrics
+- 💳 Payment and wallet management
+- 📝 Client intake questionnaires
+- 🔐 Role-Based Access Control (RBAC)
 
 ---
 
-## Project Structure
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- PostgreSQL 14+
+- npm or yarn
+
+### Installation
+
+1. **Install Dependencies**
+
+   ```bash
+   npm install
+   ```
+
+2. **Configure Environment**
+
+   Create `.env.local` for development:
+
+   ```
+   DATABASE_URL=postgresql://user:password@localhost:5432/athleticav
+   JWT_SECRET=your-secret-key
+   NODE_ENV=development
+   RATE_LIMIT_WINDOW_MS=900000
+   RATE_LIMIT_MAX=600
+   ```
+
+3. **Setup Database**
+
+   ```bash
+   # Run migrations on development database
+   npm run prisma:dev:migrate
+
+   # Seed with sample data
+   npm run seed:all
+   ```
+
+4. **Start Development Server**
+
+   ```bash
+   npm run dev
+   ```
+
+   Server runs on `http://localhost:3000`
+
+---
+
+## Architecture
+
+### Request Flow
 
 ```
-server.js                  # Entry point, mounts all routes
-configs/
-  db.js                    # Prisma client + DB connection
-  rbac.js                  # RBAC roles, permissions, and role→permission map
-routes/                    # Express routers (one file per resource)
-controllers/               # Business logic handlers
-middleware/
-  auth.js                  # verifyToken (JWT + blacklist check)
-  checkPermission.js       # Role-based permission gate
-  checkOwnership.js        # Resource ownership guard
-  resourceAccess.js        # Generic authorizeResource helper
-  errorHandler.js          # Global error handler
-utils/
-  appError.js              # Custom AppError class
-  cache.js                 # In-memory tag-based cache
-  pagination.js            # Cursor/offset pagination helper
-  validation.js            # isValidName/Email/Password/Phone
-prisma/
-  schema.prisma            # Full data model
-  migrations/              # Prisma migration history
-scripts/
-  seedRbac.js              # Seeds roles + permissions into DB
+Client Request
+    ↓
+[Middleware] Security & Validation (auth, CORS, XSS protection)
+    ↓
+[Routes] Thin routing layer → Controller mapping
+    ↓
+[Controllers] Business logic, authorization checks, Prisma calls
+    ↓
+[Database] PostgreSQL with Prisma ORM
+    ↓
+Response
 ```
 
+### Key Design Principles
+
+- **Separation of Concerns**: Routes handle HTTP contract, controllers handle logic
+- **Explicit Authorization**: Permission checks in routes + role/ownership checks in controllers
+- **Minimal Selects**: Prisma queries return only required fields
+- **Transaction Safety**: Multi-step writes use `prisma.$transaction`
+- **Error Handling**: Unified error responses via [AppError](utils/appError.js)
+
+### Middleware Stack
+
+| Middleware                                       | Purpose                               | Location            |
+| ------------------------------------------------ | ------------------------------------- | ------------------- |
+| [verifyToken](middleware/auth.js)                | JWT authentication                    | Protected routes    |
+| [checkPermission](middleware/checkPermission.js) | Route-level permission validation     | Sensitive endpoints |
+| [checkOwnership](middleware/checkOwnership.js)   | Resource ownership verification       | Data access routes  |
+| [errorHandler](middleware/errorHandler.js)       | Centralized error response formatting | App level           |
+| [resourceAccess](middleware/resourceAccess.js)   | Dynamic resource access control       | Cross-cutting       |
+
 ---
 
-## Environment Variables
+## Core Modules
 
-```env
-# Use one of these (DATABASE_URL is recommended)
-DATABASE_URL=
-PRISMA_URL=
-JWT_SECRET=
-JWT_EXPIRES_IN=7d
-SALT_ROUNDS=10
-PORT=3000
-CACHE_TTL_MS=30000
-# Redis (not yet connected)
-REDIS_URL=
-# Cloudinary (not yet connected)
-CLOUDINARY_CLOUD_NAME=
-CLOUDINARY_API_KEY=
-CLOUDINARY_API_SECRET=
+### 1. Authentication & Users
+
+**Files:** [routes/auth.js](routes/auth.js) | [controllers/auth.js](controllers/auth.js)
+
+Handles user registration and login across multiple roles. JWT tokens expire after 24 hours. Tokens can be blacklisted via logout to prevent reuse.
+
+- `POST /auth/register/client` - Client self-registration
+- `POST /auth/register/trainer` - Trainer self-registration
+- `POST /auth/register/admin` - System admin registration (requires admin role)
+- `POST /auth/login` - Authenticate and receive JWT
+- `POST /auth/logout` - Invalidate token (add to blacklist)
+- `PATCH /auth/resetPassword` - Change password for authenticated user
+
+### 2. User Management
+
+**Files:** [routes/user.js](routes/user.js) | [controllers/user.js](controllers/user.js)
+
+Manage user profiles, preferences, and role assignments. Users can have multiple roles.
+
+- `GET /users/:id` - Get user profile with roles
+- `PATCH /users/:id` - Update profile information
+- `DELETE /users/:id` - Delete account (cascades to related data)
+- `GET /users/:id/roles` - List user's assigned roles
+
+### 3. Trainer Profile & Wallet
+
+**Files:** [routes/trainerProfile.js](routes/trainerProfile.js) | [controllers/trainerProfile.js](controllers/trainerProfile.js)
+
+Trainer-specific profiles including specializations and experience. Separate wallet for managing payouts.
+
+**Complex Logic:** [See Wallet & Payout System](#wallet--payout-system)
+
+- `GET /trainer-profiles/:id` - Retrieve trainer details
+- `PATCH /trainer-profiles/:id` - Update bio, specializations, hourly rate
+- `GET /trainer-wallets/:trainerId` - View wallet balance and transactions
+- `POST /trainer-wallets/:trainerId/withdraw` - Request payout
+
+### 4. Trainer-Client Relationships
+
+**Files:** [routes/trainerClient.js](routes/trainerClient.js) | [controllers/trainerClient.js](controllers/trainerClient.js) | [TrainerClientInvite](routes/trainerClientInvite.js)
+
+Manages the coaching relationship lifecycle: invitation → acceptance → active coaching → completion.
+
+**Complex Logic:** [See Trainer-Client Relationship Flow](#trainer-client-relationship-flow)
+
+- `POST /trainer-clients` - Trainer invites client to coaching relationship
+- `GET /trainer-clients` - List all coaching relationships
+- `PATCH /trainer-clients/:id/status` - Update relationship status (ACTIVE, PAUSED, ENDED)
+- `POST /trainer-clients/:id/complete` - Mark relationship as completed
+
+### 5. Client Profiles & Intake
+
+**Files:** [routes/clientProfile.js](routes/clientProfile.js) | [controllers/clientProfile.js](controllers/clientProfile.js)  
+[routes/clientIntake.js](routes/clientIntake.js) | [controllers/clientIntake.js](controllers/clientIntake.js)
+
+Client health info, goals, and intake questionnaire responses. Used to personalize coaching.
+
+- `GET /client-profiles/:id` - Get client fitness profile
+- `PATCH /client-profiles/:id` - Update health metrics (weight, height, body fat %)
+- `POST /client-intake` - Submit intake form responses
+- `GET /client-intake/:clientId` - Retrieve intake answers
+
+### 6. Meal Planning System
+
+**Files:** [controllers/mealPlan.js](controllers/mealPlan.js) | [controllers/mealTemplate.js](controllers/mealTemplate.js) | [controllers/mealPlanItem.js](controllers/mealPlanItem.js)
+
+**Routes:** [meal-related routes](routes/)
+
+Comprehensive meal planning with two patterns: templated plans (faster) and custom plans.
+
+**Complex Logic:** [See Meal Planning Architecture](#meal-planning-architecture)
+
+**Key Endpoints:**
+
+- `POST /meal-plans` - Create new meal plan
+- `PATCH /meal-plans/:id` - Update plan (name, dates, status)
+- `GET /meal-plans/:id/progress` - View adherence/completion data
+- `POST /meal-templates` - Create reusable meal templates
+- `POST /meal-plans/:id/generate-from-template` - Create plan from template
+- `POST /meal-completions` - Log meal completion
+
+### 7. Workout Programming
+
+**Files:** [controllers/workout.js](controllers/workout.js) | [controllers/workoutTemplate.js](controllers/workoutTemplate.js) | [controllers/workoutItem.js](controllers/workoutItem.js)
+
+Similar templating pattern to meal planning. Create reusable templates and assign to clients.
+
+**Complex Logic:** [See Workout Management](#workout-management)
+
+**Key Endpoints:**
+
+- `POST /workouts` - Create workout program
+- `PATCH /workouts/:id` - Update program details
+- `POST /workout-templates` - Create reusable template
+- `POST /workouts/:id/generate-from-template` - Create workout from template
+- `POST /workout-completions` - Log workout completion
+
+### 8. Real-Time Messaging
+
+**Files:** [routes/message.js](routes/message.js) | [controllers/message.js](controllers/message.js) | [utils/websocket.js](utils/websocket.js)
+
+Trainer-client messaging with real-time updates via WebSocket (Socket.IO).
+
+**Complex Logic:** [See Real-Time Messaging Architecture](#real-time-messaging)
+
+- `POST /messages` - Send message (text, image, video, file)
+- `GET /conversations/:id/messages` - Get conversation history
+- `PATCH /messages/:id/read` - Mark message as read
+- WebSocket event: `message:new` - Real-time message delivery
+
+### 9. Progress Tracking
+
+**Files:** [routes/progress.js](routes/progress.js) | [controllers/progress.js](controllers/progress.js) | [utils/workoutProgress.js](utils/workoutProgress.js) | [utils/mealPlanProgress.js](utils/mealPlanProgress.js)
+
+Tracks client progress across workouts and meal plans via metrics (weight, body fat, muscle).
+
+- `POST /progress-metrics` - Log progress (weight, body fat %, muscle %)
+- `GET /progress-metrics` - Retrieve metrics over date range
+- `GET /progress-summary` - Get overall progress statistics
+
+### 10. Permissions & Access Control
+
+**Files:** [routes/rolePermission.js](routes/rolePermission.js) | [controllers/rolePermission.js](controllers/rolePermission.js)  
+[routes/userPermission.js](routes/userPermission.js) | [controllers/userPermission.js](controllers/userPermission.js)
+
+Granular permission management via two layers:
+
+1. **Role-based**: Permissions tied to roles (TRAINER, CLIENT, etc.)
+2. **User-specific**: Override permissions on individual users
+
+**Complex Logic:** [See RBAC System](#role-based-access-control--rbac)
+
+- `GET /roles` - List all system roles
+- `POST /role-permissions` - Assign permission to role
+- `DELETE /role-permissions/:id` - Revoke role permission
+- `POST /user-permissions` - Assign permission to specific user
+
+### 11. Activity Logging
+
+**Files:** [routes/activityLog.js](routes/activityLog.js) | [controllers/activityLog.js](controllers/activityLog.js)
+
+Automatic audit trail of CRUD operations for compliance and debugging.
+
+- `GET /activity-logs` - View activity with filters (user, resource type, date)
+- Log entries include: timestamp, user, action, resource, changes
+
+### 12. Transactions & Payments
+
+**Files:** [routes/transaction.js](routes/transaction.js) | [controllers/transaction.js](controllers/transaction.js)
+
+Track financial transactions (payments, refunds, transfers).
+
+**Complex Logic:** [See Payment & Wallet System](#wallet--payout-system)
+
+- `GET /transactions` - View transaction history
+- `POST /transactions` - Record transaction
+- `PATCH /transactions/:id/status` - Update status (PENDING → PAID/FAILED)
+
+### 13. Inventory Management
+
+**Files:** [routes/exercise.js](routes/exercise.js) | [controllers/exercise.js](controllers/exercise.js)  
+[routes/food.js](routes/food.js) | [controllers/food.js](controllers/food.js)
+
+Exercise and food database catalogs used in templates and plans.
+
+- `GET /exercises` - Search exercise catalog (filter by muscle group, equipment)
+- `POST /exercises` - Add custom exercise
+- `GET /foods` - Search food database (filter by calories, macros)
+- `POST /foods` - Add custom food
+
+---
+
+## Authentication & Authorization
+
+### JWT Token Structure
+
+Tokens include user ID, roles, and identity context flags:
+
+```json
+{
+  "id": "user-123",
+  "roles": ["TRAINER", "DEVELOPER"],
+  "trainerId": "user-123",
+  "developerId": "user-123",
+  "clientId": null,
+  "iat": 1234567890,
+  "exp": 1234654290
+}
 ```
 
----
+### Role Identity Context
 
-## Database Schema (Prisma)
+Each role maps to a unique ID field to prevent cross-role data access:
 
-### Auth & RBAC
+| Role      | Field       | Purpose                    |
+| --------- | ----------- | -------------------------- |
+| TRAINER   | trainerId   | Identify trainer resources |
+| CLIENT    | clientId    | Identify client resources  |
+| ADMIN     | adminId     | System management          |
+| DEVELOPER | developerId | External integrations      |
+| OWNER     | ownerId     | Full platform access       |
+| SUPPORT   | supportId   | Support tickets            |
 
-| Model              | Table                | Notes                                    |
-| ------------------ | -------------------- | ---------------------------------------- |
-| `User`             | `users`              | Core user — phone unique, email optional |
-| `Role`             | `roles`              | e.g. TRAINER, CLIENT, ADMIN              |
-| `Permission`       | `permissions`        | Key-based e.g. `CREATE-WORKOUTS`         |
-| `UserRole`         | `user_roles`         | Many-to-many User ↔ Role                 |
-| `RolePermission`   | `role_permissions`   | Many-to-many Role ↔ Permission           |
-| `BlacklistedToken` | `blacklisted_tokens` | Logout token blacklist                   |
+**Why it matters:** When checking if a trainer can access a meal plan, we verify the plan's `trainerId` matches the requesting user's `trainerId` from their token identity.
 
-### Trainer & Client
+See [authz.js utilities](utils/authz.js) for implementation.
 
-| Model            | Table              | Notes                           |
-| ---------------- | ------------------ | ------------------------------- |
-| `TrainerProfile` | `trainer_profiles` | bio, certifications, rating     |
-| `TrainerClient`  | `trainer_clients`  | Status: ACTIVE / PAUSED / ENDED |
+### Permission String Format
 
-### Workouts
+Permissions are action-resource pairs: `<ACTION>-<RESOURCE>`
 
-| Model             | Table               | Notes                            |
-| ----------------- | ------------------- | -------------------------------- |
-| `WorkoutTemplate` | `workout_templates` | Reusable template by trainer     |
-| `Workout`         | `workouts`          | Assigned workout with date range |
-| `WorkoutItem`     | `workout_items`     | Exercise rows inside a workout   |
+Examples:
 
-### Nutrition _(schema defined, not yet implemented)_
+- `CREATE-MEAL_PLAN` - Can create meal plans
+- `DELETE-USER` - Can delete users
+- `MANAGE-ROLES` - Can assign roles
 
-| Model          | Table             | Notes                               |
-| -------------- | ----------------- | ----------------------------------- |
-| `Food`         | `foods`           | Calories, protein, carbs, fat       |
-| `FoodPortion`  | `food_portions`   | Portion labels + multipliers        |
-| `MealTemplate` | `meal_templates`  | Reusable meal plan template         |
-| `MealPlan`     | `meal_plans`      | Assigned meal plan with date range  |
-| `MealPlanItem` | `meal_plan_items` | Food + portion + meal time per plan |
-
-### Progress _(schema defined, not yet implemented)_
-
-| Model            | Table              | Notes                               |
-| ---------------- | ------------------ | ----------------------------------- |
-| `ProgressMetric` | `progress_metrics` | WEIGHT / BODY_FAT / MUSCLE tracking |
-
-### Messaging _(schema defined, not yet implemented)_
-
-| Model          | Table           | Notes                      |
-| -------------- | --------------- | -------------------------- |
-| `Conversation` | `conversations` | 1 per trainer-client pair  |
-| `Message`      | `messages`      | TEXT / IMAGE / VIDEO types |
-
-### Payments _(schema defined, not yet implemented)_
-
-| Model           | Table             | Notes                                   |
-| --------------- | ----------------- | --------------------------------------- |
-| `Transaction`   | `transactions`    | grossAmount, platformFee, trainerAmount |
-| `TrainerWallet` | `trainer_wallets` | Running balance per trainer             |
-| `Payout`        | `payouts`         | REQUESTED / PAID status                 |
-
-### Audit _(schema defined, not yet implemented)_
-
-| Model         | Table           | Notes                              |
-| ------------- | --------------- | ---------------------------------- |
-| `ActivityLog` | `activity_logs` | User action log with JSON metadata |
+Mapped in [configs/rbac.js](configs/rbac.js) and checked via middleware.
 
 ---
 
-## RBAC System
+## Complex Logic Documentation
 
-Roles defined in `configs/rbac.js` and seeded via `npm run seed:rbac`.
+### Meal Planning Architecture
 
-| Role        | Access Level                                            |
-| ----------- | ------------------------------------------------------- |
-| `OWNER`     | All permissions                                         |
-| `DEVELOPER` | All permissions                                         |
-| `ADMIN`     | All permissions                                         |
-| `TRAINER`   | Own profile, clients, workout templates, workouts       |
-| `CLIENT`    | View own data, trainer profiles, workouts               |
-| `SUPPORT`   | Read-only on users, trainer profiles, clients, workouts |
+**Overview:** Two-tier system for meal plan creation:
 
-**Current permissions defined:** 36 keys covering full CRUD on users, roles, permissions, role-permissions, trainer profiles, trainer clients, workout templates, and workouts.
+1. **From Template**: Select pre-built template → auto-populate all meals/items
+2. **From Scratch**: Define meals day-by-day → add items manually
 
----
+**Key Functions:**
 
-## API Endpoints
+- [createMealPlanFromTemplate()](controllers/mealPlan.js#L150-L200) - Auto-generate plan from template structure
+- [recalcMealPlanSummary()](utils/mealPlanProgress.js) - Recalculate macro totals when items change
+- Meal plan status flow: DRAFT → ACTIVE → COMPLETED or ARCHIVED
 
-Base URL: `/api/v1`
+**Why Complex:**
 
-### Auth — `/auth`
+- Templates have nested structure (Plan → Days → Items)
+- Updating items must recalculate daily/weekly summaries
+- Need to track completion % (logs vs. scheduled meals)
 
-| Method | Path             | Auth | Permission | Description                 |
-| ------ | ---------------- | ---- | ---------- | --------------------------- |
-| POST   | `/register`      | ❌   | N/A        | Register a new user         |
-| POST   | `/login`         | ❌   | N/A        | Login and return JWT        |
-| POST   | `/logout`        | ✅   | N/A        | Logout and blacklist token  |
-| PATCH  | `/resetPassword` | ✅   | N/A        | Reset current user password |
-
-### Users — `/users`
-
-| Method | Path                  | Auth | Permission                 | Description              |
-| ------ | --------------------- | ---- | -------------------------- | ------------------------ |
-| GET    | `/me`                 | ✅   | `VIEW-ME`                  | Get current user profile |
-| GET    | `/getAll`             | ✅   | `VIEW-USERS`               | List users               |
-| GET    | `/getById/:userId`    | ✅   | `VIEW-USERS`               | Get user by ID           |
-| PATCH  | `/update/:userId`     | ✅   | `UPDATE-USERS` + ownership | Update user              |
-| DELETE | `/deleteById/:userId` | ✅   | `DELETE-USERS` + ownership | Delete user              |
-
-### Roles — `/roles`
-
-| Method | Path              | Auth | Permission     | Description    |
-| ------ | ----------------- | ---- | -------------- | -------------- |
-| POST   | `/create`         | ✅   | `CREATE-ROLES` | Create role    |
-| GET    | `/getAll`         | ✅   | `VIEW-ROLES`   | List roles     |
-| GET    | `/getById/:id`    | ✅   | `VIEW-ROLES`   | Get role by ID |
-| PUT    | `/update/:id`     | ✅   | `UPDATE-ROLES` | Update role    |
-| DELETE | `/deleteById/:id` | ✅   | `DELETE-ROLES` | Delete role    |
-
-### Permissions — `/permissions`
-
-| Method | Path              | Auth | Permission           | Description            |
-| ------ | ----------------- | ---- | -------------------- | ---------------------- |
-| POST   | `/create`         | ✅   | `CREATE-PERMISSIONS` | Create permission      |
-| GET    | `/getAll`         | ✅   | `VIEW-PERMISSIONS`   | List permissions       |
-| GET    | `/getById/:id`    | ✅   | `VIEW-PERMISSIONS`   | Get permission by ID   |
-| PUT    | `/updateById/:id` | ✅   | `UPDATE-PERMISSIONS` | Update permission      |
-| DELETE | `/deleteById/:id` | ✅   | `DELETE-PERMISSIONS` | Delete permission      |
-| DELETE | `/deleteAll`      | ✅   | `DELETE-PERMISSIONS` | Delete all permissions |
-
-### Role Permissions — `/role-permissions`
-
-| Method | Path              | Auth | Permission                | Description                            |
-| ------ | ----------------- | ---- | ------------------------- | -------------------------------------- |
-| POST   | `/create`         | ✅   | `CREATE-ROLE-PERMISSIONS` | Create role-permission assignment      |
-| GET    | `/getAll`         | ✅   | `VIEW-ROLE-PERMISSIONS`   | List role-permission assignments       |
-| GET    | `/getById/:id`    | ✅   | `VIEW-ROLE-PERMISSIONS`   | Get role-permission assignment by ID   |
-| PUT    | `/update/:id`     | ✅   | `UPDATE-ROLE-PERMISSIONS` | Update role-permission assignment      |
-| DELETE | `/deleteById/:id` | ✅   | `DELETE-ROLE-PERMISSIONS` | Delete role-permission assignment      |
-| DELETE | `/deleteAll`      | ✅   | `DELETE-ROLE-PERMISSIONS` | Delete all role-permission assignments |
-
-### User Permissions — `/user-permissions`
-
-| Method | Path   | Auth | Permission           | Description                            |
-| ------ | ------ | ---- | -------------------- | -------------------------------------- |
-| POST   | `/`    | ✅   | `CREATE-PERMISSIONS` | Create user-permission assignment      |
-| GET    | `/`    | ✅   | `VIEW-PERMISSIONS`   | List user-permission assignments       |
-| GET    | `/:id` | ✅   | `VIEW-PERMISSIONS`   | Get user-permission assignment by ID   |
-| PUT    | `/:id` | ✅   | `UPDATE-PERMISSIONS` | Update user-permission assignment      |
-| DELETE | `/:id` | ✅   | `DELETE-PERMISSIONS` | Delete user-permission assignment      |
-| DELETE | `/`    | ✅   | `DELETE-PERMISSIONS` | Delete all user-permission assignments |
-
-### Trainer Profiles — `/trainer-profiles`
-
-| Method | Path               | Auth | Permission                | Description                    |
-| ------ | ------------------ | ---- | ------------------------- | ------------------------------ |
-| POST   | `/create`          | ✅   | `CREATE-TRAINER-PROFILES` | Create trainer profile         |
-| GET    | `/getAll`          | ✅   | `VIEW-TRAINER-PROFILES`   | List trainer profiles          |
-| GET    | `/getById/:userId` | ✅   | `VIEW-TRAINER-PROFILES`   | Get trainer profile by user ID |
-| PATCH  | `/update/:userId`  | ✅   | `UPDATE-TRAINER-PROFILES` | Update trainer profile         |
-| DELETE | `/delete/:userId`  | ✅   | `DELETE-TRAINER-PROFILES` | Delete trainer profile         |
-| DELETE | `/deleteAll`       | ✅   | `DELETE-TRAINER-PROFILES` | Delete all trainer profiles    |
-
-### Trainer Clients — `/trainer-clients`
-
-| Method | Path                            | Auth | Permission               | Description                         |
-| ------ | ------------------------------- | ---- | ------------------------ | ----------------------------------- |
-| POST   | `/create`                       | ✅   | `CREATE-TRAINER-CLIENTS` | Create trainer-client relation      |
-| GET    | `/getAll`                       | ✅   | `VIEW-TRAINER-CLIENTS`   | List trainer-client relations       |
-| GET    | `/getAllByTrainerId/:trainerId` | ✅   | `VIEW-TRAINER-CLIENTS`   | List relations by trainer ID        |
-| GET    | `/getById/:id`                  | ✅   | `VIEW-TRAINER-CLIENTS`   | Get trainer-client relation by ID   |
-| PATCH  | `/updateStatusToPaused/:id`     | ✅   | `UPDATE-TRAINER-CLIENTS` | Set relation status to `PAUSED`     |
-| PATCH  | `/updateStatusToEnded/:id`      | ✅   | `UPDATE-TRAINER-CLIENTS` | Set relation status to `ENDED`      |
-| PATCH  | `/updateStatusToActive/:id`     | ✅   | `UPDATE-TRAINER-CLIENTS` | Set relation status to `ACTIVE`     |
-| DELETE | `/deleteById/:id`               | ✅   | verifyToken only         | Delete trainer-client relation      |
-| DELETE | `/deleteAll`                    | ✅   | verifyToken only         | Delete all trainer-client relations |
-
-### Workout Templates — `/workout-templates`
-
-| Method | Path                 | Auth | Permission                 | Description                       |
-| ------ | -------------------- | ---- | -------------------------- | --------------------------------- |
-| POST   | `/create`            | ✅   | `CREATE-WORKOUT-TEMPLATES` | Create workout template           |
-| GET    | `/getAll/:trainerId` | ✅   | `VIEW-WORKOUT-TEMPLATES`   | List workout templates by trainer |
-| GET    | `/getById/:id`       | ✅   | `VIEW-WORKOUT-TEMPLATES`   | Get workout template by ID        |
-| PATCH  | `/update/:id`        | ✅   | `UPDATE-WORKOUT-TEMPLATES` | Update workout template           |
-| DELETE | `/delete/:id`        | ✅   | `DELETE-WORKOUT-TEMPLATES` | Delete workout template           |
-| DELETE | `/deleteAll`         | ✅   | `DELETE-WORKOUT-TEMPLATES` | Delete all workout templates      |
-
-### Workouts — `/workouts`
-
-| Method | Path           | Auth | Permission        | Description         |
-| ------ | -------------- | ---- | ----------------- | ------------------- |
-| POST   | `/create`      | ✅   | `CREATE-WORKOUTS` | Create workout      |
-| GET    | `/getAll`      | ✅   | `VIEW-WORKOUTS`   | List workouts       |
-| GET    | `/getById/:id` | ✅   | `VIEW-WORKOUTS`   | Get workout by ID   |
-| PATCH  | `/update/:id`  | ✅   | `UPDATE-WORKOUTS` | Update workout      |
-| DELETE | `/delete/:id`  | ✅   | `DELETE-WORKOUTS` | Delete workout      |
-| DELETE | `/deleteAll`   | ✅   | `DELETE-WORKOUTS` | Delete all workouts |
-
-### Workout Items — `/workout-items`
-
-| Method | Path                            | Auth | Permission        | Description                      |
-| ------ | ------------------------------- | ---- | ----------------- | -------------------------------- |
-| POST   | `/create`                       | ✅   | `CREATE-WORKOUTS` | Create workout item              |
-| GET    | `/getAll`                       | ✅   | `VIEW-WORKOUTS`   | List workout items               |
-| GET    | `/getAllByWorkoutId/:workoutId` | ✅   | `VIEW-WORKOUTS`   | List workout items by workout ID |
-| GET    | `/getById/:id`                  | ✅   | `VIEW-WORKOUTS`   | Get workout item by ID           |
-| PATCH  | `/update/:id`                   | ✅   | `UPDATE-WORKOUTS` | Update workout item              |
-| DELETE | `/delete/:id`                   | ✅   | `DELETE-WORKOUTS` | Delete workout item              |
-| DELETE | `/deleteAll`                    | ✅   | `DELETE-WORKOUTS` | Delete all workout items         |
+**See Also:** [Meal Plan Related Routes](routes/#L1) for API examples
 
 ---
 
-## Middleware
+### Workout Management
 
-| File                 | Purpose                                                   |
-| -------------------- | --------------------------------------------------------- |
-| `auth.js`            | `verifyToken` — validates JWT, checks blacklist           |
-| `checkPermission.js` | Gates routes by permission key(s)                         |
-| `checkOwnership.js`  | Ensures user owns the resource (or has bypass role)       |
-| `resourceAccess.js`  | Generic `authorizeResource(action)` using resource config |
-| `errorHandler.js`    | Global error handler — formats `AppError` responses       |
+**Overview:** Identical pattern to meal planning—templates + custom workouts.
 
----
+**Key Difference from Meals:**
 
-## Utilities
+- Workouts include exercise form videos and progression tracking
+- Support multiple difficulty levels (BEGINNER, INTERMEDIATE, ADVANCED)
+- Rest days are optional with custom notes
 
-| File            | Purpose                                                                     |
-| --------------- | --------------------------------------------------------------------------- |
-| `appError.js`   | `AppError` class with `statusCode` and `isOperational`                      |
-| `cache.js`      | Tag-based in-memory cache (`getCache`, `setCache`, `invalidateCacheByTags`) |
-| `pagination.js` | Pagination helper for list endpoints                                        |
-| `validation.js` | `isValidName`, `isValidEmail`, `isValidPassword`, `isValidPhone`            |
+**Key Functions:**
+
+- [createWorkoutFromTemplate()](controllers/workout.js) - Generate workout program
+- [calculateWorkoutProgress()](utils/workoutProgress.js) - Track sets completed vs. prescribed
+- Status flow: DRAFT → ACTIVE → COMPLETED or PAUSED
+
+**See Also:** [Workout Routes](routes/workout.js)
 
 ---
 
-## What Is Done ✅
+### Trainer-Client Relationship Flow
 
-### Infrastructure
+**Overview:** Multi-step process for coaching engagement:
 
-- [x] Express server with ESM modules
-- [x] Prisma + PostgreSQL connection (`configs/db.js`)
-- [x] Global error handler middleware
-- [x] Custom `AppError` class
-- [x] Input validation utilities (name, email, password, phone)
-- [x] In-memory tag-based cache utility
-- [x] Pagination utility
-- [x] RBAC seed script (`npm run seed:rbac`)
+```
+1. Trainer invites client (generates invite code)
+2. Client accepts invite → creates TrainerClient record
+3. Coach creates meal/workout plans for client
+4. Client logs meals & workouts
+5. Trainer provides feedback
+6. Relationship ends (ENDED or completed)
+```
 
-### Auth
+**Key Statuses:**
 
-- [x] Register (multi-role support, auto CLIENT fallback)
-- [x] Login with JWT signing
-- [x] Logout with token blacklisting
-- [x] Reset password (while authenticated)
-- [x] `verifyToken` middleware with blacklist check
+- **ACTIVE**: Coaching actively happening
+- **PAUSED**: Temporary break (trainer or client can pause)
+- **ENDED**: Coaching finished (by either party)
 
-### RBAC
+**Important:** When relationship ends, historical plans remain but trainer loses real-time access to client future data.
 
-- [x] Roles CRUD
-- [x] Permissions CRUD
-- [x] Role ↔ Permission assignment CRUD
-- [x] User ↔ Permission assignment CRUD
-- [x] `checkPermission` middleware
-- [x] `checkOwnership` middleware
-- [x] 6 roles defined: OWNER, DEVELOPER, ADMIN, TRAINER, CLIENT, SUPPORT
-- [x] 36 permission keys defined and mapped
-
-### Users
-
-- [x] Get own profile (`/me`)
-- [x] Get all users, get by ID
-- [x] Update user (password re-hashed on change)
-- [x] Delete user
-
-### Trainer Profiles
-
-- [x] Create, read, update, delete trainer profile
-- [x] Ownership check (trainers can only manage their own profile)
-
-### Trainer Clients
-
-- [x] Create, read, update, delete trainer-client relationships
-- [x] Status management: ACTIVE / PAUSED / ENDED
-
-### Workout Templates
-
-- [x] Create, read, update, delete workout templates
-- [x] Level: BEGINNER / INTERMEDIATE / ADVANCED
-
-### Workouts
-
-- [x] Create workout with embedded `WorkoutItems` (exercises)
-- [x] Get workout + items, update, delete
-- [x] Date range filtering, trainer/client filtering
-- [x] Scoped listing (trainers see their own, admins see all)
+**See Also:** [trainerClientInvite Controller](controllers/trainerClientInvite.js)
 
 ---
 
-## What Remains ❌
+### Real-Time Messaging
 
-### Security hardening (packages installed, not wired)
+**Overview:** WebSocket-based messaging system with Socket.IO.
 
-- [ ] **Helmet** — add `app.use(helmet())` in `server.js`
-- [ ] **CORS** — add `app.use(cors(...))` with allowed origins
-- [ ] **Rate limiting** — add `express-rate-limit` to auth routes (login/register)
-- [ ] **Slow-down** — add `express-slow-down` to sensitive routes
-- [ ] **XSS** — sanitize request body strings with the `xss` package
-- [ ] **Redis cache** — replace in-memory Map with Redis client using installed `redis` package
+**Flow:**
 
-### File Uploads (packages installed, not wired)
+1. Client connects socket (authenticated via JWT)
+2. User joins conversation room
+3. Messages sent via HTTP endpoint OR WebSocket event
+4. Server broadcasts to all conversation participants
+5. Clients receive real-time `message:new` event
 
-- [ ] **Multer middleware** — file upload handling
-- [ ] **Cloudinary integration** — upload profile images and media files
-- [ ] **Profile image upload endpoint** — `PATCH /users/:id/avatar`
+**Key Events:**
 
-### Nutrition Module _(DB schema exists, no routes/controllers)_
+- `message:new` - New message received
+- `user:typing` - User is typing indicator
+- `user:disconnect` - User left conversation
 
-- [ ] `GET/POST /foods` — food catalog CRUD
-- [ ] `GET/POST /food-portions` — portion variants per food
-- [ ] `GET/POST /meal-templates` — reusable meal plan templates
-- [ ] `GET/POST /meal-plans` — assign meal plan to client (with items)
-- [ ] `GET/POST /meal-plans/:id/items` — add/remove food items per meal time
-- [ ] RBAC permissions for meal module
+**Message Types:** TEXT, IMAGE, VIDEO, FILE
 
-### Progress Tracking _(DB schema exists, no routes/controllers)_
+**Why Complex:**
 
-- [ ] `POST /progress` — log a metric (weight, body fat, muscle)
-- [ ] `GET /progress` — list metrics for a user
-- [ ] `GET /progress/summary` — aggregated trend view
-- [ ] RBAC permissions for progress module
+- Must handle HTTP fallback (if WebSocket fails)
+- Maintain message order across concurrent sends
+- Track read/unread status per user
 
-### Messaging _(DB schema exists, no routes/controllers)_
-
-- [ ] `POST /conversations` — start a conversation between trainer & client
-- [ ] `GET /conversations` — list own conversations
-- [ ] `POST /conversations/:id/messages` — send a message
-- [ ] `GET /conversations/:id/messages` — fetch messages (paginated)
-- [ ] Real-time support via **WebSockets / Socket.io** (not yet installed)
-- [ ] RBAC permissions for messaging module
-
-### Payments _(DB schema exists, no routes/controllers)_
-
-- [ ] `POST /transactions` — create a payment transaction
-- [ ] `GET /transactions` — list transactions
-- [ ] `GET /wallet` — get trainer wallet balance
-- [ ] `POST /payouts` — request a payout
-- [ ] `GET /payouts` — list payout history
-- [ ] Payment gateway integration (Stripe / Fawry / etc.) — not yet chosen
-- [ ] RBAC permissions for payments module
-
-### Activity Logs _(DB schema exists, no routes/controllers)_
-
-- [ ] Plug `ActivityLog` writes into key controllers (login, register, update, delete)
-- [ ] `GET /activity-logs` — admin view of audit trail
-
-### Auth Improvements
-
-- [ ] Email/SMS verification flow (`isVerified` field exists but unused)
-- [ ] Refresh token mechanism
-- [ ] Forgot password via email/OTP
-
-### General
-
-- [ ] `.env.example` file for onboarding
-- [ ] Request body XSS sanitization middleware
-- [ ] Swagger / OpenAPI documentation
-- [ ] Unit & integration tests
-- [ ] Docker / docker-compose setup
+**See Also:** [websocket.js](utils/websocket.js#L1-L50)
 
 ---
 
-_Last updated: March 15, 2026_
+### Role-Based Access Control (RBAC)
+
+**Overview:** Two-layer permission system:
+
+1. **Role Layer**: Permissions assigned to roles at system level
+2. **User Layer**: Override permissions on specific users
+
+**Implementation:**
+
+- [Permission table](prisma/schema.prisma) - Define all available permissions
+- [RolePermission](prisma/schema.prisma) - Map permissions to roles
+- [UserPermission](prisma/schema.prisma) - User-specific overrides
+
+**Authorization Flow:**
+
+```javascript
+1. Extract user roles from JWT
+2. Fetch role permissions from DB
+3. Apply user-specific permission overrides
+4. Check if requested action is in permission set
+5. Allow or deny
+```
+
+**Key Concept:** Role changes are immediate—no token refresh needed. Token contains role names; lookup happens on each request.
+
+**See Also:** [authz.js](utils/authz.js#L30-L80) for `getUserAccessContext()` implementation
+
+---
+
+### Wallet & Payout System
+
+**Overview:** Trainer earnings tracked in separate Wallet record.
+
+**Flow:**
+
+```
+1. Payment received → creates Transaction
+2. Transaction linked to Workout/Meal session
+3. Amount added to trainer's Wallet balance
+4. Trainer requests withdrawal
+5. Withdrawal processed → creates Payout transaction
+```
+
+**Key Fields:**
+
+- `Wallet.balance` - Current available funds
+- `Wallet.totalEarned` - Lifetime earnings
+- `Transaction.type` - "PAYMENT" | "REFUND" | "WITHDRAWAL"
+- `Transaction.status` - "PENDING" | "PAID" | "FAILED"
+
+**Why Complex:**
+
+- Handle refunds (reverse balance)
+- Ensure balance never goes negative
+- Track payout processing time/status
+- Reconcile with external payment processor
+
+**See Also:** [trainerWallet Controller](controllers/trainerWallet.js)
+
+---
+
+### Client Intake Questionnaire
+
+**Overview:** Structured intake form capturing client goals, constraints, and preferences.
+
+**Question Categories:**
+
+- Health info (weight, height, medical conditions)
+- Activity level and commitments
+- Dietary preferences and restrictions
+- Fitness goals and motivation
+- Previous program experience
+- Timeline/deadlines
+
+**Storage:** Responses stored as key-value pairs mapped to `IntakeQuestionKey` enum.
+
+**Why Complex:**
+
+- Questions are conditional (skip based on answers)
+- Answers inform coach recommendations
+- Need audit trail of changes
+- Support multiple interview sessions (not all questions answered at once)
+
+**See Also:** [clientIntake Controller](controllers/clientIntake.js)
+
+---
+
+## Database Schema
+
+### Core Entities
+
+**User & Authentication**
+
+- `User` - Base user account (email, password hash)
+- `Role` - System roles (TRAINER, CLIENT, ADMIN, etc.)
+- `UserRole` - Links users to roles (many-to-many)
+- `BlacklistedToken` - Logout tracking
+- `Permission` - Granular access permissions
+- `RolePermission` - Role → Permission mapping
+- `UserPermission` - User-specific permission overrides
+
+**Profiles**
+
+- `TrainerProfile` - Trainer specializations, bio, hourly rate
+- `ClientProfile` - Client fitness metrics, goals, health info
+- `ClientIntake` - Intake questionnaire responses
+
+**Coaching Relationships**
+
+- `TrainerClient` - Active coaching engagement
+- `TrainerClientInvite` - Invitation workflow (pending, accepted, expired)
+
+**Meal Planning**
+
+- `MealPlan` - Coaching meal plan program
+- `MealPlanDay` - Daily meals within plan
+- `MealPlanItem` - Individual meal entry
+- `MealTemplate` - Reusable template structure
+- `MealTemplateDay` - Template daily structure
+- `MealTemplateItem` - Template meal item
+- `MealCompletion` - Client logged meal
+- `Food` - Food database catalog
+
+**Workouts**
+
+- `Workout` - Coaching workout program
+- `WorkoutDay` - Daily workout within program
+- `WorkoutItem` - Individual exercise entry
+- `WorkoutTemplate` - Reusable template structure
+- `WorkoutTemplateDay` - Template daily structure
+- `WorkoutTemplateItem` - Template exercise item
+- `WorkoutCompletion` - Client logged workout
+- `Exercise` - Exercise database catalog
+
+**Messaging**
+
+- `Conversation` - Message thread (trainer ↔ client)
+- `Message` - Individual message
+- `MessageRead` - Track read status per user
+
+**Progress & Analytics**
+
+- `ProgressMetric` - Client metrics (weight, body fat, muscle %)
+- `ActivityLog` - Audit trail (CRUD operations)
+
+**Financials**
+
+- `Transaction` - Payment records
+- `TrainerWallet` - Trainer funds tracker
+- `Payout` - Withdrawal requests
+
+**See full schema:** [prisma/schema.prisma](prisma/schema.prisma)
+
+---
+
+## API Testing
+
+### Postman Collection
+
+Import Postman collection for testing all endpoints:
+
+- [Messaging API Collection](docs/Athletica-Messaging-API.postman_collection.json)
+
+### Manual Testing Endpoints
+
+**HTML Test Clients:**
+
+- [Trainer Messaging Test](docs/trainer-messaging-test.html)
+- [Client Messaging Test](docs/client-messaging-test.html)
+
+### Quick Test Commands
+
+```bash
+# Login and get JWT token
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"trainer@example.com","password":"password123"}'
+
+# Use token in Authorization header
+curl -X GET http://localhost:3000/trainer-profiles/user-id \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**See:** [TESTING-QUICK-START.md](docs/TESTING-QUICK-START.md) for comprehensive guide
+
+---
+
+## Development
+
+### NPM Scripts
+
+```bash
+# Development
+npm run dev                    # Start with nodemon (hot reload)
+npm start                      # Production server
+
+# Database
+npm run prisma:dev:migrate    # Create + apply migration to .env.local DB
+npm run prisma:dev:reset      # Drop and recreate all tables (dev only)
+npm run prisma:dev:studio     # Open Prisma Studio UI
+npm run prisma:prod:deploy    # Apply pending migrations to production DB
+npm run prisma:generate       # Regenerate Prisma client types
+
+# Seeding (populate test data)
+npm run seed:all              # Run all seeds
+npm run seed:rbac             # Seed roles and permissions
+npm run seed:workout          # Seed sample workouts
+npm run seed:meal-template    # Seed meal templates
+npm run seed:demo             # Demo data for testing
+
+# Imports (bulk data)
+npm run seed:foods:file       # Import foods from prisma_seed_data.json
+npm run seed:exercises:file   # Import exercises from 01_athletica_mvp_database_v2.json
+```
+
+### Adding New API Features
+
+**1. Update Schema**
+
+```bash
+# Edit prisma/schema.prisma
+npm run prisma:dev:migrate -- --name feature_name
+```
+
+**2. Create Controller**
+
+- File: `controllers/feature.js`
+- Local validation helpers at top
+- Exported handler functions
+- Use [AppError](utils/appError.js) for known errors
+
+**3. Create Route**
+
+- File: `routes/feature.js`
+- Thin layer: permission middleware + handler calls
+- Explicit permission checks via `checkPermission("<ACTION>-<RESOURCE>")`
+
+**4. Test**
+
+```bash
+npm run dev
+# Use Postman or curl to test endpoints
+```
+
+See existing controllers for pattern examples: [mealPlan.js](controllers/mealPlan.js)
+
+### Database Migrations
+
+**Development Workflow:**
+
+```bash
+# Make schema changes
+# Apply to local .env.local database:
+npm run prisma:dev:migrate -- --name describe_change
+
+# Test queries work
+# Commit schema changes
+# When ready for production:
+npm run prisma:prod:deploy  # Applies migrations to production
+```
+
+**Important:** Never use `prisma migrate dev` on production databases. Use `prisma migrate deploy` instead.
+
+See [prisma-migration-workflow.md](docs/prisma-migration-workflow.md) for detailed guide.
+
+### Logging & Debugging
+
+**Environment Variables**
+
+```
+NODE_ENV=development       # Logs warnings + errors
+NODE_ENV=production        # Logs errors only
+DEBUG=athletica:*          # Enable debug logging (if configured)
+```
+
+**Activity Logs** track all user actions:
+
+```bash
+GET /activity-logs?userId=xxx&resourceType=MealPlan&since=2025-01-01
+```
+
+### Code Style Guide
+
+- **Modules**: ESM (`import`/`export`) with `.js` files
+- **Error Handling**: `AppError` for validation/domain errors, `next(err)` for unexpected
+- **Prisma**: Minimal explicit `select` — avoid returning full related objects
+- **Transactions**: Multi-step writes use `prisma.$transaction()`
+- **Auth**: Permission checks in routes, role/ownership in controllers
+
+---
+
+## Troubleshooting
+
+### Database Connection Failed
+
+```
+Error: Database connection failed
+```
+
+**Solution:**
+
+- Check `.env.local` has valid `DATABASE_URL`
+- Verify PostgreSQL is running
+- Test connection: `psql -U user -d database -h localhost`
+
+### Token Expired When Testing
+
+```
+Error: Token expired, please login again
+```
+
+**Solution:** Login again to get fresh JWT
+
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"your-email@example.com","password":"password"}'
+```
+
+### Permission Denied
+
+```
+Error: Forbidden — insufficient permissions
+```
+
+**Solution:**
+
+- Verify user role via `GET /users/:id`
+- Check role has required permission via `GET /role-permissions`
+- Grant permission: `POST /role-permissions` (admin only)
+
+### Meal Plan Not Associating with Items
+
+Ensure items are created AFTER plan is created (foreign key constraint).
+
+---
+
+## Resources
+
+- **API Reference**: [auth-permission-reference.md](docs/auth-permission-reference.md)
+- **Messaging Setup**: [MESSAGING-README.md](docs/MESSAGING-README.md)
+- **Recent Updates**: [updates-2026-04-07.md](docs/updates-2026-04-07.md)
+- **Trainer Invite Flow**: [trainer-invite-to-trainer-client-flow.md](docs/trainer-invite-to-trainer-client-flow.md)
+
+---
+
+## License
+
+ISC
+
+---
+
+**Last Updated**: April 2026
