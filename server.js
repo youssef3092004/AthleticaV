@@ -78,11 +78,20 @@ const apiSpeedLimiter = slowDown({
 });
 
 app.use(helmet());
+const allowedOrigins = [
+  "https://athletica-six.vercel.app",
+  null,
+];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.split(",").map((item) => item.trim())
-      : true,
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   }),
 );
@@ -106,11 +115,16 @@ const PORT = process.env.PORT || 3000;
 const httpServer = http.createServer(app);
 export const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || "*",
+    origin: function (origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   },
 });
-
 // Initialize WebSocket handlers
 initializeWebSocket(io);
 
@@ -203,5 +217,14 @@ if (process.env.VERCEL !== "1") {
     console.log(`WebSocket ready for real-time messaging`);
   });
 }
+
+app.use((req, res, next) => {
+  console.log("🔥 HIT:", req.method, req.url);
+  next();
+});
+
+app.get("/api/v1/test", (req, res) => {
+  res.json({ success: true, message: "API is working!" });
+});
 
 export default app;
