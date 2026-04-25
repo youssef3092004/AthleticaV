@@ -70,18 +70,35 @@ const ensureTrainerClientRelationship = async (trainerId, clientId) => {
   }
 };
 
+const ensureProgramForWorkout = async (programId) => {
+  if (!programId) {
+    throw new AppError("programId is required", 400);
+  }
+
+  const program = await prisma.program.findUnique({
+    where: { id: String(programId) },
+    select: {
+      id: true,
+      trainerId: true,
+      clientId: true,
+      startDate: true,
+      endDate: true,
+    },
+  });
+
+  if (!program) {
+    throw new AppError("Program not found", 404);
+  }
+
+  return program;
+};
+
 const parseDate = (value, fieldName) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new AppError(`Invalid ${fieldName}`, 400);
   }
   return date;
-};
-
-const ensureDateRange = (startDate, endDate) => {
-  if (startDate && endDate && endDate < startDate) {
-    throw new AppError("End date cannot be before start date", 400);
-  }
 };
 
 const addDays = (date, days) => {
@@ -146,23 +163,38 @@ const buildListWhere = (req) => {
     where.workoutTemplateId = String(req.query.workoutTemplateId);
   }
 
+  if (req.query.programId) {
+    where.programId = String(req.query.programId);
+  }
+
   if (req.query.startDateFrom || req.query.startDateTo) {
-    where.startDate = {};
+    where.program = where.program || {};
+    where.program.startDate = {};
     if (req.query.startDateFrom) {
-      where.startDate.gte = parseDate(req.query.startDateFrom, "startDateFrom");
+      where.program.startDate.gte = parseDate(
+        req.query.startDateFrom,
+        "startDateFrom",
+      );
     }
     if (req.query.startDateTo) {
-      where.startDate.lte = parseDate(req.query.startDateTo, "startDateTo");
+      where.program.startDate.lte = parseDate(
+        req.query.startDateTo,
+        "startDateTo",
+      );
     }
   }
 
   if (req.query.endDateFrom || req.query.endDateTo) {
-    where.endDate = {};
+    where.program = where.program || {};
+    where.program.endDate = {};
     if (req.query.endDateFrom) {
-      where.endDate.gte = parseDate(req.query.endDateFrom, "endDateFrom");
+      where.program.endDate.gte = parseDate(
+        req.query.endDateFrom,
+        "endDateFrom",
+      );
     }
     if (req.query.endDateTo) {
-      where.endDate.lte = parseDate(req.query.endDateTo, "endDateTo");
+      where.program.endDate.lte = parseDate(req.query.endDateTo, "endDateTo");
     }
   }
 
@@ -172,12 +204,18 @@ const buildListWhere = (req) => {
 const WORKOUT_LIST_SELECT = {
   id: true,
   workoutTemplateId: true,
+  programId: true,
   clientId: true,
   trainerId: true,
-  startDate: true,
-  endDate: true,
   totalCount: true,
   completedCount: true,
+  program: {
+    select: {
+      id: true,
+      startDate: true,
+      endDate: true,
+    },
+  },
 };
 
 const WORKOUT_DETAILS_SELECT = {
@@ -242,14 +280,24 @@ const WORKOUT_DETAILS_SELECT = {
 
 export const createWorkout = async (req, res, next) => {
   try {
-    const { workoutTemplateId, clientId, trainerId, startDate, endDate } =
-      req.body;
+    const { workoutTemplateId, programId } = req.body;
+    const program = await ensureProgramForWorkout(programId);
 
-    if (!clientId || !trainerId || !startDate || !endDate) {
+    const trainerId = req.body.trainerId
+      ? String(req.body.trainerId)
+      : String(program.trainerId);
+    const clientId = req.body.clientId
+      ? String(req.body.clientId)
+      : String(program.clientId);
+
+    if (
+      String(trainerId) !== String(program.trainerId) ||
+      String(clientId) !== String(program.clientId)
+    ) {
       return next(
         new AppError(
-          "Client ID, trainer ID, start date, and end date are required",
-          400,
+          "trainerId and clientId must match the selected program",
+          409,
         ),
       );
     }
@@ -263,10 +311,6 @@ export const createWorkout = async (req, res, next) => {
     await ensureUserExists(clientId, "Client user");
     await ensureUserExists(trainerId, "Trainer user");
     await ensureTrainerClientRelationship(trainerId, clientId);
-
-    const parsedStartDate = parseDate(startDate, "startDate");
-    const parsedEndDate = parseDate(endDate, "endDate");
-    ensureDateRange(parsedStartDate, parsedEndDate);
 
     let sourceTemplate = null;
     if (workoutTemplateId) {
@@ -320,8 +364,8 @@ export const createWorkout = async (req, res, next) => {
       const maxDayIndex = Math.max(
         ...sourceTemplate.days.map((d) => d.dayIndex),
       );
-      const requiredEndDate = addDays(parsedStartDate, maxDayIndex);
-      if (parsedEndDate < requiredEndDate) {
+      const requiredEndDate = addDays(program.startDate, maxDayIndex);
+      if (program.endDate < requiredEndDate) {
         return next(
           new AppError(
             "End date is too early for selected workout template days",
@@ -339,10 +383,9 @@ export const createWorkout = async (req, res, next) => {
       const createdWorkout = await tx.workout.create({
         data: {
           workoutTemplateId: workoutTemplateId || null,
+          programId: program.id,
           clientId,
           trainerId,
-          startDate: parsedStartDate,
-          endDate: parsedEndDate,
           totalCount: initialTotalCount,
           completedCount: 0,
         },
@@ -357,7 +400,7 @@ export const createWorkout = async (req, res, next) => {
             data: {
               workoutId: createdWorkout.id,
               dayIndex: templateDay.dayIndex,
-              date: addDays(parsedStartDate, templateDay.dayIndex),
+              date: addDays(program.startDate, templateDay.dayIndex),
               title: templateDay.label ?? `Day ${templateDay.dayIndex + 1}`,
               totalCount: templateDay.items.length,
               completedCount: 0,
@@ -387,7 +430,7 @@ export const createWorkout = async (req, res, next) => {
           data: {
             workoutId: createdWorkout.id,
             dayIndex: 0,
-            date: parsedStartDate,
+            date: program.startDate,
             title: "Day 1",
             totalCount: 0,
             completedCount: 0,
@@ -460,7 +503,7 @@ export const getWorkoutById = async (req, res, next) => {
 export const getAllWorkouts = async (req, res, next) => {
   try {
     const { page, limit, skip, sort, order } = pagination(req, {
-      defaultSort: "startDate",
+      defaultSort: "id",
       defaultOrder: "desc",
       defaultLimit: 20,
     });
@@ -531,10 +574,9 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
       select: {
         id: true,
         workoutTemplateId: true,
+        programId: true,
         trainerId: true,
         clientId: true,
-        startDate: true,
-        endDate: true,
       },
     });
 
@@ -547,13 +589,7 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
     }
 
     const updateData = { ...req.body };
-    const allowedFields = [
-      "workoutTemplateId",
-      "clientId",
-      "trainerId",
-      "startDate",
-      "endDate",
-    ];
+    const allowedFields = ["workoutTemplateId", "programId"];
 
     const payloadKeys = Object.keys(updateData);
     if (payloadKeys.length === 0) {
@@ -564,28 +600,6 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
       if (!allowedFields.includes(key)) {
         return next(new AppError(`Field '${key}' cannot be updated`, 400));
       }
-    }
-
-    const nextTrainerId = updateData.trainerId ?? existing.trainerId;
-    const nextClientId = updateData.clientId ?? existing.clientId;
-
-    if (!ensureOwnOrPrivileged(req, nextTrainerId, nextClientId)) {
-      return next(new AppError("Forbidden", 403));
-    }
-
-    if (updateData.clientId !== undefined) {
-      await ensureUserExists(updateData.clientId, "Client user");
-    }
-
-    if (updateData.trainerId !== undefined) {
-      await ensureUserExists(updateData.trainerId, "Trainer user");
-    }
-
-    if (
-      updateData.clientId !== undefined ||
-      updateData.trainerId !== undefined
-    ) {
-      await ensureTrainerClientRelationship(nextTrainerId, nextClientId);
     }
 
     if (updateData.workoutTemplateId !== undefined) {
@@ -600,7 +614,7 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
         );
         if (
           !canManageAnyWorkout(req.user) &&
-          String(template.trainerId) !== String(nextTrainerId)
+          String(template.trainerId) !== String(existing.trainerId)
         ) {
           return next(
             new AppError(
@@ -612,23 +626,20 @@ export const updateWorkoutByIdPatch = async (req, res, next) => {
       }
     }
 
-    const nextStartDate =
-      updateData.startDate !== undefined
-        ? parseDate(updateData.startDate, "startDate")
-        : existing.startDate;
-    const nextEndDate =
-      updateData.endDate !== undefined
-        ? parseDate(updateData.endDate, "endDate")
-        : existing.endDate;
-
-    ensureDateRange(nextStartDate, nextEndDate);
-
-    if (updateData.startDate !== undefined) {
-      updateData.startDate = nextStartDate;
-    }
-
-    if (updateData.endDate !== undefined) {
-      updateData.endDate = nextEndDate;
+    if (updateData.programId !== undefined) {
+      const nextProgram = await ensureProgramForWorkout(updateData.programId);
+      if (
+        String(nextProgram.trainerId) !== String(existing.trainerId) ||
+        String(nextProgram.clientId) !== String(existing.clientId)
+      ) {
+        return next(
+          new AppError(
+            "Program must belong to the same trainer and client",
+            409,
+          ),
+        );
+      }
+      updateData.programId = nextProgram.id;
     }
 
     const updated = await prisma.workout.update({

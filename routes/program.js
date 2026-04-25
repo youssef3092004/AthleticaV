@@ -1,12 +1,11 @@
 import { Router } from "express";
 import {
-  createWorkout,
-  deleteAllWorkouts,
-  deleteWorkoutById,
-  getAllWorkouts,
-  getWorkoutById,
-  updateWorkoutByIdPatch,
-} from "../controllers/workout.js";
+  createProgram,
+  deleteProgramById,
+  getProgramById,
+  getPrograms,
+  updateProgramById,
+} from "../controllers/program.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
 import { checkOwnership } from "../middleware/checkOwnership.js";
@@ -17,55 +16,53 @@ router.post(
   "/create",
   verifyToken,
   checkPermission("CREATE-WORKOUTS"),
-  createWorkout,
+  createProgram,
 );
+
 router.get(
   "/getAll",
   verifyToken,
   checkPermission("VIEW-WORKOUTS"),
-  getAllWorkouts,
+  getPrograms,
 );
+
 router.get(
   "/getById/:id",
   verifyToken,
   checkPermission("VIEW-WORKOUTS"),
   checkOwnership({
-    model: "workout",
+    model: "program",
     idField: "id",
-    ownerFields: ["trainerId"],
+    ownerFields: ["trainerId", "clientId"],
     paramKey: "id",
   }),
-  getWorkoutById,
+  getProgramById,
 );
+
 router.patch(
   "/update/:id",
   verifyToken,
   checkPermission("UPDATE-WORKOUTS"),
   checkOwnership({
-    model: "workout",
+    model: "program",
     idField: "id",
-    ownerFields: ["trainerId"],
+    ownerFields: ["trainerId", "clientId"],
     paramKey: "id",
   }),
-  updateWorkoutByIdPatch,
+  updateProgramById,
 );
+
 router.delete(
   "/delete/:id",
   verifyToken,
   checkPermission("DELETE-WORKOUTS"),
   checkOwnership({
-    model: "workout",
+    model: "program",
     idField: "id",
-    ownerFields: ["trainerId"],
+    ownerFields: ["trainerId", "clientId"],
     paramKey: "id",
   }),
-  deleteWorkoutById,
-);
-router.delete(
-  "/deleteAll",
-  verifyToken,
-  checkPermission("DELETE-WORKOUTS"),
-  deleteAllWorkouts,
+  deleteProgramById,
 );
 
 export default router;

@@ -1,6 +1,11 @@
 import { prisma } from "../configs/db.js";
 import { AppError } from "../utils/appError.js";
 import { recalcMealPlanDayAndSummary } from "../utils/mealPlanProgress.js";
+import { calculateUserStreak } from "../utils/streakService.js";
+import {
+  getMealPlanDayCompletionStatus,
+  maybeNotifyTrainerMealPlanDayCompleted,
+} from "../utils/completionAlerts.js";
 import {
   ensureHasAnyRole,
   ensureSameUserOrPrivileged,
@@ -176,6 +181,10 @@ export const upsertMealCompletion = async (req, res, next) => {
     const context = await getItemOwnershipContext(mealPlanItemId);
     ensureClientOwnsCompletion(access, context);
 
+    const dayStatusBefore = await getMealPlanDayCompletionStatus(
+      context.mealPlanDayId,
+    );
+
     const completedAt = parseOptionalDateTime(
       req.body.completedAt,
       "completedAt",
@@ -217,6 +226,20 @@ export const upsertMealCompletion = async (req, res, next) => {
         });
 
     await recalcDayCounters(context.mealPlanDayId);
+    await calculateUserStreak(context.clientId);
+
+    try {
+      const dayStatusAfter = await getMealPlanDayCompletionStatus(
+        context.mealPlanDayId,
+      );
+
+      await maybeNotifyTrainerMealPlanDayCompleted({
+        before: dayStatusBefore,
+        after: dayStatusAfter,
+      });
+    } catch (notificationError) {
+      console.error("Meal completion notification failed", notificationError);
+    }
 
     return res.status(existing ? 200 : 201).json({
       success: true,
@@ -425,6 +448,7 @@ export const removeMealCompletionById = async (req, res, next) => {
     });
 
     await recalcDayCounters(context.mealPlanDayId);
+    await calculateUserStreak(context.clientId);
 
     return res.status(200).json({
       success: true,

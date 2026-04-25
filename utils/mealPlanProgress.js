@@ -6,6 +6,8 @@ const toRoundedPercentage = (completedCount, totalCount) => {
   return Number(raw.toFixed(2));
 };
 
+const toRoundedMacro = (value) => Number(Number(value || 0).toFixed(2));
+
 export const recalcMealPlanSummary = async (mealPlanId, tx = prisma) => {
   const scopedPlanId = String(mealPlanId);
 
@@ -39,31 +41,52 @@ export const recalcMealPlanDayAndSummary = async (
 ) => {
   const scopedDayId = String(mealPlanDayId);
 
-  const [dayMeta, totalCount, completedCount] = await tx.$transaction([
-    tx.mealPlanDay.findUnique({
-      where: { id: scopedDayId },
-      select: {
-        id: true,
-        mealPlanId: true,
-      },
-    }),
-    tx.mealPlanItem.count({
-      where: { mealPlanDayId: scopedDayId },
-    }),
-    tx.mealCompletion.count({
-      where: {
-        mealPlanItem: {
-          mealPlanDayId: scopedDayId,
+  const [dayMeta, totalCount, completedCount, completedNutrition] =
+    await tx.$transaction([
+      tx.mealPlanDay.findUnique({
+        where: { id: scopedDayId },
+        select: {
+          id: true,
+          mealPlanId: true,
         },
-      },
-    }),
-  ]);
+      }),
+      tx.mealPlanItem.count({
+        where: { mealPlanDayId: scopedDayId },
+      }),
+      tx.mealCompletion.count({
+        where: {
+          mealPlanItem: {
+            mealPlanDayId: scopedDayId,
+          },
+        },
+      }),
+      tx.mealPlanItem.aggregate({
+        where: {
+          mealPlanDayId: scopedDayId,
+          completion: {
+            isNot: null,
+          },
+        },
+        _sum: {
+          caloriesSnapshot: true,
+          proteinSnapshot: true,
+          carbsSnapshot: true,
+          fatSnapshot: true,
+        },
+      }),
+    ]);
 
   if (!dayMeta) {
     return;
   }
 
   const percentage = toRoundedPercentage(completedCount, totalCount);
+  const totalCalories = toRoundedMacro(
+    completedNutrition._sum.caloriesSnapshot,
+  );
+  const totalProtein = toRoundedMacro(completedNutrition._sum.proteinSnapshot);
+  const totalCarbs = toRoundedMacro(completedNutrition._sum.carbsSnapshot);
+  const totalFats = toRoundedMacro(completedNutrition._sum.fatSnapshot);
 
   await tx.mealPlanDay.update({
     where: { id: scopedDayId },
@@ -71,6 +94,10 @@ export const recalcMealPlanDayAndSummary = async (
       totalCount,
       completedCount,
       percentage,
+      totalCalories,
+      totalProtein,
+      totalCarbs,
+      totalFats,
     },
   });
 

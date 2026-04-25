@@ -17,6 +17,8 @@
     "seed:meal-template": "node scripts/seedMealTemplate.js",
     "seed:meal-plan:template": "node scripts/seedMealPlanFromTemplate.js",
     "seed:meal-plan:scratch": "node scripts/seedMealPlanFromScratch.js",
+    "seed:progress:bulk": "node scripts/seedProgressAndStreak.js",
+    "seed:progress:reports": "node scripts/seedProgressReports.js",
     "seed:conversation": "node scripts/seedConversation.js",
     "seed:demo": "node scripts/seedDemo.js",
     "seed:exercises:catalog": "node scripts/importExerciseCatalog.js",

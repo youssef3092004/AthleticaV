@@ -81,8 +81,12 @@ const ensureWorkoutAccess = async (workoutId, req) => {
       id: true,
       trainerId: true,
       clientId: true,
-      startDate: true,
-      endDate: true,
+      program: {
+        select: {
+          startDate: true,
+          endDate: true,
+        },
+      },
     },
   });
 
@@ -161,7 +165,7 @@ export const addWorkoutDay = async (req, res, next) => {
     const dayIndex = parseNonNegativeInteger(req.body.dayIndex, "dayIndex");
     const date = parseDateOnly(req.body.date, "date");
 
-    if (date < workout.startDate || date > workout.endDate) {
+    if (date < workout.program.startDate || date > workout.program.endDate) {
       return next(
         new AppError("Day date must be inside workout start/end range", 400),
       );
@@ -307,7 +311,7 @@ export const updateWorkoutDayById = async (req, res, next) => {
 
     if (req.body.date !== undefined) {
       const date = parseDateOnly(req.body.date, "date");
-      if (date < workout.startDate || date > workout.endDate) {
+      if (date < workout.program.startDate || date > workout.program.endDate) {
         return next(
           new AppError("Day date must be inside workout start/end range", 400),
         );

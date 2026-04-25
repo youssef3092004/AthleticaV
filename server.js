@@ -78,15 +78,21 @@ const apiSpeedLimiter = slowDown({
 });
 
 app.use(helmet());
-const allowedOrigins = [
+const allowedOrigins = new Set([
   "https://athletica-six.vercel.app",
-  null,
-];
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
+  "null",
+]);
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
@@ -116,7 +122,7 @@ const httpServer = http.createServer(app);
 export const io = new Server(httpServer, {
   cors: {
     origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
@@ -146,6 +152,7 @@ import workoutTemplateRoutes from "./routes/workoutTemplate.js";
 import workoutTemplateDayRoutes from "./routes/workoutTemplateDay.js";
 import workoutTemplateItemRoutes from "./routes/workoutTemplateItem.js";
 import workoutRoutes from "./routes/workout.js";
+import programRoutes from "./routes/program.js";
 import workoutDayRoutes from "./routes/workoutDay.js";
 import workoutItemRoutes from "./routes/workoutItem.js";
 import workoutCompletionRoutes from "./routes/workoutCompletion.js";
@@ -171,6 +178,10 @@ import transactionRoutes from "./routes/transaction.js";
 import trainerWalletRoutes from "./routes/trainerWallet.js";
 import payoutRoutes from "./routes/payout.js";
 import activityLogRoutes from "./routes/activityLog.js";
+import quotationRoutes from "./routes/quotation.js";
+import trainerQuestionRoutes from "./routes/trainerQuestion.js";
+import checkInRoutes from "./routes/checkIn.js";
+import paymentRoutes from "./payments/paymob.routes.js";
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
@@ -184,6 +195,7 @@ app.use("/api/v1/workout-templates", workoutTemplateRoutes);
 app.use("/api/v1/workout-template-days", workoutTemplateDayRoutes);
 app.use("/api/v1/workout-template-items", workoutTemplateItemRoutes);
 app.use("/api/v1/workouts", workoutRoutes);
+app.use("/api/v1/programs", programRoutes);
 app.use("/api/v1/workout-days", workoutDayRoutes);
 app.use("/api/v1/workout-items", workoutItemRoutes);
 app.use("/api/v1/workout-completions", workoutCompletionRoutes);
@@ -207,6 +219,10 @@ app.use("/api/v1/transactions", transactionRoutes);
 app.use("/api/v1/trainer-wallets", trainerWalletRoutes);
 app.use("/api/v1/payouts", payoutRoutes);
 app.use("/api/v1/activity-logs", activityLogRoutes);
+app.use("/api/v1/quotations", quotationRoutes);
+app.use("/api/v1/trainer-questions", trainerQuestionRoutes);
+app.use("/api/v1/check-ins", checkInRoutes);
+app.use("/api/v1/payments", paymentRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);

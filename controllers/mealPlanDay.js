@@ -75,6 +75,10 @@ export const addMealPlanDay = async (req, res, next) => {
         completedCount: true,
         totalCount: true,
         percentage: true,
+        totalCalories: true,
+        totalProtein: true,
+        totalCarbs: true,
+        totalFats: true,
         createdAt: true,
       },
     });
@@ -123,6 +127,10 @@ export const getMealPlanDayById = async (req, res, next) => {
         completedCount: true,
         totalCount: true,
         percentage: true,
+        totalCalories: true,
+        totalProtein: true,
+        totalCarbs: true,
+        totalFats: true,
         createdAt: true,
         items: {
           orderBy: [{ mealTime: "asc" }, { sortOrder: "asc" }],
@@ -248,6 +256,10 @@ export const getMealPlanDaysByPlanId = async (req, res, next) => {
         completedCount: true,
         totalCount: true,
         percentage: true,
+        totalCalories: true,
+        totalProtein: true,
+        totalCarbs: true,
+        totalFats: true,
         createdAt: true,
         items: {
           orderBy: [{ mealTime: "asc" }, { sortOrder: "asc" }],
@@ -333,6 +345,10 @@ export const updateMealPlanDayById = async (req, res, next) => {
         completedCount: true,
         totalCount: true,
         percentage: true,
+        totalCalories: true,
+        totalProtein: true,
+        totalCarbs: true,
+        totalFats: true,
         createdAt: true,
       },
     });

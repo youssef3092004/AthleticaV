@@ -146,6 +146,16 @@ const RESOURCE_CONFIGS = {
       delete: ["DELETE-ACTIVITY-LOGS"],
     },
   }),
+  trainerquestions: createCrudResource({
+    model: "trainerQuestion",
+    ownerFields: ["trainerId", "clientId"],
+    permissions: {
+      create: ["CREATE-TRAINER-QUESTIONS"],
+      view: ["VIEW-TRAINER-QUESTIONS"],
+      update: ["UPDATE-TRAINER-QUESTIONS"],
+      delete: ["DELETE-TRAINER-QUESTIONS"],
+    },
+  }),
   permissions: createCrudResource({
     model: "permission",
     ownerFields: [],

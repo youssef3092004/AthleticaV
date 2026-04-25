@@ -266,13 +266,17 @@ export const getCoachWowMoment = async (req, res, next) => {
             trainerId,
             clientId,
           },
-          orderBy: [{ endDate: "desc" }, { startDate: "desc" }],
+          orderBy: [{ program: { endDate: "desc" } }, { createdAt: "desc" }],
           select: {
             id: true,
-            startDate: true,
-            endDate: true,
             totalCount: true,
             completedCount: true,
+            program: {
+              select: {
+                startDate: true,
+                endDate: true,
+              },
+            },
           },
         }),
         prisma.mealPlan.findFirst({
@@ -282,14 +286,18 @@ export const getCoachWowMoment = async (req, res, next) => {
               clientId,
             },
           },
-          orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ program: { startDate: "desc" } }, { createdAt: "desc" }],
           select: {
             id: true,
             status: true,
             totalCount: true,
             completedCount: true,
-            startDate: true,
-            endDate: true,
+            program: {
+              select: {
+                startDate: true,
+                endDate: true,
+              },
+            },
           },
         }),
         prisma.message.findFirst({
@@ -352,13 +360,19 @@ export const getCoachWowMoment = async (req, res, next) => {
         )
       : 0;
 
-    let loggedWeightRows = [];
+    let loggedPerformanceRows = [];
     if (latestWorkout) {
       try {
-        loggedWeightRows = await prisma.workoutCompletion.findMany({
+        loggedPerformanceRows = await prisma.workoutCompletion.findMany({
           where: {
             clientId,
-            loggedWeightKg: { not: null },
+            OR: [
+              { loggedWeightKg: { not: null } },
+              { loggedSets: { not: null } },
+              { loggedReps: { not: null } },
+              { performedSets: { not: null } },
+              { note: { not: null } },
+            ],
             workoutItem: {
               day: {
                 workoutId: latestWorkout.id,
@@ -369,6 +383,10 @@ export const getCoachWowMoment = async (req, res, next) => {
           select: {
             workoutItemId: true,
             loggedWeightKg: true,
+            loggedSets: true,
+            loggedReps: true,
+            performedSets: true,
+            note: true,
             completedAt: true,
             workoutItem: {
               select: {
@@ -383,24 +401,28 @@ export const getCoachWowMoment = async (req, res, next) => {
           },
         });
       } catch {
-        loggedWeightRows = [];
+        loggedPerformanceRows = [];
         sectionStatus.loggedWeights = "error";
       }
     }
 
     const seenExerciseIds = new Set();
-    const loggedWeights = [];
-    for (const row of loggedWeightRows) {
+    const loggedPerformances = [];
+    for (const row of loggedPerformanceRows) {
       const exercise = row.workoutItem?.exercise;
       if (!exercise?.id || seenExerciseIds.has(exercise.id)) {
         continue;
       }
 
       seenExerciseIds.add(exercise.id);
-      loggedWeights.push({
+      loggedPerformances.push({
         exerciseId: exercise.id,
         exerciseName: exercise.name,
         loggedWeightKg: row.loggedWeightKg,
+        loggedSets: row.loggedSets,
+        loggedReps: row.loggedReps,
+        performedSets: row.performedSets,
+        note: row.note,
         completedAt: row.completedAt,
         workoutItemId: row.workoutItemId,
       });
@@ -416,19 +438,20 @@ export const getCoachWowMoment = async (req, res, next) => {
         generatedAt: new Date().toISOString(),
         workout: {
           workoutId: latestWorkout?.id || null,
-          startDate: latestWorkout?.startDate || null,
-          endDate: latestWorkout?.endDate || null,
+          startDate: latestWorkout?.program?.startDate || null,
+          endDate: latestWorkout?.program?.endDate || null,
           status: workoutStatus,
           totalCount: latestWorkout?.totalCount || 0,
           completedCount: latestWorkout?.completedCount || 0,
           completionPercentage: workoutCompletionPercentage,
-          loggedWeights,
+          loggedWeights: loggedPerformances,
+          loggedPerformances,
         },
         meals: {
           mealPlanId: mealPlan?.id || null,
           status: mealPlan?.status || null,
-          startDate: mealPlan?.startDate || null,
-          endDate: mealPlan?.endDate || null,
+          startDate: mealPlan?.program?.startDate || null,
+          endDate: mealPlan?.program?.endDate || null,
           totalCount: mealPlan?.totalCount || 0,
           completedCount: mealPlan?.completedCount || 0,
           completionPercentage: mealCompletionPercentage,

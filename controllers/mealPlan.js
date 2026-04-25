@@ -9,13 +9,7 @@ import {
 } from "../utils/authz.js";
 
 const ALLOWED_PLAN_STATUSES = ["DRAFT", "ACTIVE", "COMPLETED", "ARCHIVED"];
-const ALLOWED_SORT_FIELDS = [
-  "createdAt",
-  "updatedAt",
-  "startDate",
-  "endDate",
-  "id",
-];
+const ALLOWED_SORT_FIELDS = ["createdAt", "updatedAt", "id"];
 
 const sanitizeOptionalString = (value, fieldName, maxLength = 1000) => {
   if (value === undefined) return undefined;
@@ -154,6 +148,29 @@ const ensureTrainerClientRelationship = async (trainerId, clientId) => {
   }
 };
 
+const ensureProgramForMealPlan = async (programId) => {
+  if (!programId) {
+    throw new AppError("programId is required", 400);
+  }
+
+  const program = await prisma.program.findUnique({
+    where: { id: String(programId) },
+    select: {
+      id: true,
+      trainerId: true,
+      clientId: true,
+      startDate: true,
+      endDate: true,
+    },
+  });
+
+  if (!program) {
+    throw new AppError("Program not found", 404);
+  }
+
+  return program;
+};
+
 const ensureSourceTemplate = async (templateId, trainerId, access) => {
   if (!templateId) return null;
 
@@ -186,6 +203,7 @@ const ensureSourceTemplate = async (templateId, trainerId, access) => {
 const PLAN_LIST_SELECT = {
   id: true,
   sourceMealTemplateId: true,
+  programId: true,
   clientProfileId: true,
   trainerId: true,
   status: true,
@@ -194,10 +212,15 @@ const PLAN_LIST_SELECT = {
   percentage: true,
   title: true,
   notes: true,
-  startDate: true,
-  endDate: true,
   createdAt: true,
   updatedAt: true,
+  program: {
+    select: {
+      id: true,
+      startDate: true,
+      endDate: true,
+    },
+  },
   sourceTemplate: {
     select: {
       id: true,
@@ -230,6 +253,10 @@ const PLAN_DETAILS_SELECT = {
       completedCount: true,
       totalCount: true,
       percentage: true,
+      totalCalories: true,
+      totalProtein: true,
+      totalCarbs: true,
+      totalFats: true,
       createdAt: true,
       items: {
         orderBy: [{ mealTime: "asc" }, { sortOrder: "asc" }],
@@ -275,7 +302,8 @@ export const createMealPlan = async (req, res, next) => {
     const access = await getUserAccessContext(req);
     ensureHasAnyRole(access, ["TRAINER"], "Forbidden: trainer role required");
 
-    const trainerId = req.body.trainerId || access.userId;
+    const program = await ensureProgramForMealPlan(req.body.programId);
+    const trainerId = program.trainerId;
     ensureSameUserOrPrivileged(
       access,
       trainerId,
@@ -289,12 +317,17 @@ export const createMealPlan = async (req, res, next) => {
       clientId: req.body.clientId,
     });
 
+    if (String(profile.clientId) !== String(program.clientId)) {
+      return next(
+        new AppError(
+          "Client profile must belong to the same client as the selected program",
+          409,
+        ),
+      );
+    }
+
     await ensureUserExists(profile.clientId, "Client user");
     await ensureTrainerClientRelationship(trainerId, profile.clientId);
-
-    const startDate = parseDateOnly(req.body.startDate, "startDate");
-    const endDate = parseDateOnly(req.body.endDate, "endDate");
-    ensureDateRange(startDate, endDate);
 
     const sourceMealTemplateId = await ensureSourceTemplate(
       req.body.sourceMealTemplateId || null,
@@ -309,13 +342,12 @@ export const createMealPlan = async (req, res, next) => {
     const created = await prisma.mealPlan.create({
       data: {
         sourceMealTemplateId,
+        programId: program.id,
         trainerId,
         clientProfileId: profile.id,
         status,
         title,
         notes,
-        startDate,
-        endDate,
       },
       select: PLAN_LIST_SELECT,
     });
@@ -334,7 +366,8 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
     const access = await getUserAccessContext(req);
     ensureHasAnyRole(access, ["TRAINER"], "Forbidden: trainer role required");
 
-    const trainerId = req.body.trainerId || access.userId;
+    const program = await ensureProgramForMealPlan(req.body.programId);
+    const trainerId = program.trainerId;
     ensureSameUserOrPrivileged(
       access,
       trainerId,
@@ -356,10 +389,19 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
       clientId: req.body.clientId,
     });
 
+    if (String(profile.clientId) !== String(program.clientId)) {
+      return next(
+        new AppError(
+          "Client profile must belong to the same client as the selected program",
+          409,
+        ),
+      );
+    }
+
     await ensureUserExists(profile.clientId, "Client user");
     await ensureTrainerClientRelationship(trainerId, profile.clientId);
 
-    const startDate = parseDateOnly(req.body.startDate, "startDate");
+    const startDate = program.startDate;
 
     const sourceMealTemplateId = await ensureSourceTemplate(
       templateId,
@@ -422,9 +464,7 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
 
     const maxDayIndex = Math.max(...template.days.map((day) => day.dayIndex));
     const minRequiredEndDate = addDays(startDate, maxDayIndex);
-    const endDate = req.body.endDate
-      ? parseDateOnly(req.body.endDate, "endDate")
-      : minRequiredEndDate;
+    const endDate = program.endDate;
 
     ensureDateRange(startDate, endDate);
     if (endDate < minRequiredEndDate) {
@@ -445,13 +485,12 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
       const createdPlan = await tx.mealPlan.create({
         data: {
           sourceMealTemplateId,
+          programId: program.id,
           trainerId,
           clientProfileId: profile.id,
           status,
           title,
           notes,
-          startDate,
-          endDate,
         },
         select: {
           id: true,
@@ -468,6 +507,10 @@ export const createMealPlanFromTemplate = async (req, res, next) => {
             date: planDate,
             completedCount: 0,
             totalCount: day.items.length,
+            totalCalories: 0,
+            totalProtein: 0,
+            totalCarbs: 0,
+            totalFats: 0,
           },
           select: {
             id: true,
@@ -564,13 +607,21 @@ export const getMealPlans = async (req, res, next) => {
       where.status = normalizePlanStatus(req.query.status);
     }
 
+    if (req.query.programId) {
+      where.programId = String(req.query.programId);
+    }
+
     if (req.query.startDate || req.query.endDate) {
-      where.startDate = {};
+      where.program = {};
       if (req.query.startDate) {
-        where.startDate.gte = parseDateOnly(req.query.startDate, "startDate");
+        where.program.startDate = {
+          gte: parseDateOnly(req.query.startDate, "startDate"),
+        };
       }
       if (req.query.endDate) {
-        where.startDate.lte = parseDateOnly(req.query.endDate, "endDate");
+        where.program.endDate = {
+          lte: parseDateOnly(req.query.endDate, "endDate"),
+        };
       }
     }
 
@@ -660,9 +711,13 @@ export const updateMealPlanById = async (req, res, next) => {
       where: { id: String(planId) },
       select: {
         id: true,
+        programId: true,
         trainerId: true,
-        startDate: true,
-        endDate: true,
+        clientProfile: {
+          select: {
+            clientId: true,
+          },
+        },
       },
     });
 
@@ -690,12 +745,20 @@ export const updateMealPlanById = async (req, res, next) => {
       data.status = normalizePlanStatus(req.body.status);
     }
 
-    if (req.body.startDate !== undefined) {
-      data.startDate = parseDateOnly(req.body.startDate, "startDate");
-    }
-
-    if (req.body.endDate !== undefined) {
-      data.endDate = parseDateOnly(req.body.endDate, "endDate");
+    if (req.body.programId !== undefined) {
+      const program = await ensureProgramForMealPlan(req.body.programId);
+      if (
+        String(program.trainerId) !== String(existing.trainerId) ||
+        String(program.clientId) !== String(existing.clientProfile.clientId)
+      ) {
+        return next(
+          new AppError(
+            "Program must belong to the same trainer and client",
+            409,
+          ),
+        );
+      }
+      data.programId = program.id;
     }
 
     if (
@@ -712,10 +775,6 @@ export const updateMealPlanById = async (req, res, next) => {
     if (req.body.sourceMealTemplateId === null) {
       data.sourceMealTemplateId = null;
     }
-
-    const nextStart = data.startDate || existing.startDate;
-    const nextEnd = data.endDate || existing.endDate;
-    ensureDateRange(nextStart, nextEnd);
 
     const updated = await prisma.mealPlan.update({
       where: { id: existing.id },

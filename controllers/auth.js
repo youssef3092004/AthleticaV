@@ -14,7 +14,6 @@ import {
 import { AppError } from "../utils/appError.js";
 import jwt from "jsonwebtoken";
 import { buildRoleIdentityContext } from "../utils/authz.js";
-
 // ============ CONSTANTS ============
 const ROLE_IDS = {
   CLIENT: "670e8a6e-98dd-4270-b651-0d2923cbda1c",

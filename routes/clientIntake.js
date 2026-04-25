@@ -4,6 +4,7 @@ import {
   getClientIntakeAnswersByClientId,
   getClientIntakeAnswersByTrainerId,
   getIntakeQuestionBank,
+  getMyClientIntakeStatus,
   upsertClientIntakeAnswers,
 } from "../controllers/clientIntake.js";
 import { verifyToken } from "../middleware/auth.js";
@@ -11,6 +12,7 @@ import { verifyToken } from "../middleware/auth.js";
 const router = Router();
 
 router.get("/questions", verifyToken, getIntakeQuestionBank);
+router.get("/status", verifyToken, getMyClientIntakeStatus);
 router.post("/answers", verifyToken, upsertClientIntakeAnswers);
 router.get(
   "/answers/trainer/:trainerId",

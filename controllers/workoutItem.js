@@ -246,6 +246,116 @@ const toResponseItem = (item) => ({
   },
 });
 
+const toSetPerformanceRows = (completion) => {
+  const rows = Array.isArray(completion?.performedSets)
+    ? completion.performedSets
+        .map((row) => ({
+          setNumber: Number(row?.setNumber),
+          kg: row?.kg ?? null,
+          reps: row?.reps ?? null,
+          isCompleted:
+            row?.isCompleted === undefined ? true : Boolean(row?.isCompleted),
+        }))
+        .filter((row) => Number.isInteger(row.setNumber) && row.setNumber > 0)
+        .sort((a, b) => a.setNumber - b.setNumber)
+    : [];
+
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      ...row,
+      text:
+        row.kg !== null && row.reps !== null
+          ? `${row.kg} kg * ${row.reps}`
+          : row.kg !== null
+            ? `${row.kg} kg`
+            : row.reps !== null
+              ? `${row.reps} reps`
+              : "-",
+    }));
+  }
+
+  if (
+    completion?.loggedWeightKg !== null &&
+    completion?.loggedWeightKg !== undefined
+  ) {
+    return [
+      {
+        setNumber: 1,
+        kg: completion.loggedWeightKg,
+        reps: completion?.loggedReps ?? null,
+        isCompleted: true,
+        text:
+          completion?.loggedReps !== null &&
+          completion?.loggedReps !== undefined
+            ? `${completion.loggedWeightKg} kg * ${completion.loggedReps}`
+            : `${completion.loggedWeightKg} kg`,
+      },
+    ];
+  }
+
+  return [];
+};
+
+const formatPreviousPerformance = (completion) => {
+  if (!completion) return null;
+
+  const setRows = toSetPerformanceRows(completion);
+
+  return {
+    completionId: completion.id,
+    workoutItemId: completion.workoutItemId,
+    completedAt: completion.completedAt,
+    loggedSets: completion.loggedSets,
+    loggedReps: completion.loggedReps,
+    loggedWeightKg: completion.loggedWeightKg,
+    performedSets: completion.performedSets,
+    note: completion.note,
+    setRows,
+  };
+};
+
+const getPreviousPerformanceForItem = async (item) => {
+  const previous = await prisma.workoutCompletion.findFirst({
+    where: {
+      clientId: String(item.day.workout.clientId),
+      workoutItemId: {
+        not: String(item.id),
+      },
+      workoutItem: {
+        exerciseId: String(item.exerciseId),
+      },
+    },
+    orderBy: {
+      completedAt: "desc",
+    },
+    select: {
+      id: true,
+      workoutItemId: true,
+      completedAt: true,
+      loggedSets: true,
+      loggedReps: true,
+      loggedWeightKg: true,
+      performedSets: true,
+      note: true,
+    },
+  });
+
+  return formatPreviousPerformance(previous);
+};
+
+const toResponseItemWithPrevious = async (item) => {
+  const previousPerformance = await getPreviousPerformanceForItem(item);
+
+  return {
+    ...toResponseItem(item),
+    previousPerformance,
+  };
+};
+
+const toResponseItemsWithPrevious = async (items) => {
+  return Promise.all(items.map((item) => toResponseItemWithPrevious(item)));
+};
+
 const buildListWhere = (req) => {
   const requesterId = getUserId(req);
   const where = {};
@@ -340,9 +450,11 @@ export const createWorkoutItem = async (req, res, next) => {
       ...buildResourceTags("workouts", created.day.workoutId),
     ]);
 
+    const payload = await toResponseItemWithPrevious(created);
+
     return res.status(201).json({
       status: "success",
-      data: toResponseItem(created),
+      data: payload,
       source: "database",
     });
   } catch (error) {
@@ -389,7 +501,7 @@ export const getWorkoutItemById = async (req, res, next) => {
       return next(new AppError("Forbidden", 403));
     }
 
-    const payload = toResponseItem(item);
+    const payload = await toResponseItemWithPrevious(item);
     setCache(cacheKey, payload, buildResourceTags("workout_items", id));
 
     return res.status(200).json({
@@ -443,9 +555,11 @@ export const getAllWorkoutItems = async (req, res, next) => {
 
     const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
 
+    const responseItems = await toResponseItemsWithPrevious(items);
+
     const payload = {
       status: "success",
-      data: items.map(toResponseItem),
+      data: responseItems,
       meta: {
         page,
         limit,
@@ -510,9 +624,11 @@ export const getAllWorkoutItemsByWorkoutId = async (req, res, next) => {
 
     const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
 
+    const responseItems = await toResponseItemsWithPrevious(items);
+
     return res.status(200).json({
       status: "success",
-      data: items.map(toResponseItem),
+      data: responseItems,
       meta: {
         page,
         limit,
@@ -659,9 +775,11 @@ export const updateWorkoutItemByIdPatch = async (req, res, next) => {
         : []),
     ]);
 
+    const payload = await toResponseItemWithPrevious(updated);
+
     return res.status(200).json({
       status: "success",
-      data: toResponseItem(updated),
+      data: payload,
       source: "database",
     });
   } catch (error) {
