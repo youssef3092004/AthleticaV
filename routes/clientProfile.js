@@ -55,7 +55,7 @@ router.get(
  * Supports pagination and sorting
  */
 router.get(
-  "/",
+  "/getAll",
   verifyToken,
   checkPermission("VIEW-CLIENT-PROFILES"),
   getAllClientProfiles,

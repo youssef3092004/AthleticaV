@@ -6,8 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon server.js",
-    "postinstall": "prisma generate",
     "seed:rbac": "node scripts/seedRbac.js",
+    "postinstall": "prisma generate",
     "seed:plans": "node scripts/seedPlans.js",
     "seed:foods": "node scripts/seedFoodCatalog.js",
     "seed:foods:catalog": "node scripts/importFoodCatalog.js",
@@ -30,7 +30,8 @@
     "prisma:dev:studio": "node scripts/prismaWithEnv.js .env.local studio",
     "prisma:prod:status": "node scripts/prismaWithEnv.js .env migrate status",
     "prisma:prod:deploy": "node scripts/prismaWithEnv.js .env migrate deploy",
-    "prisma:generate": "node scripts/prismaWithEnv.js .env.local generate"
+    "prisma:generate": "node scripts/prismaWithEnv.js .env.local generate",
+    "cleanup:tokens": "node scripts/cleanupBlacklistedTokens.js"
   },
   "repository": {
     "type": "git",

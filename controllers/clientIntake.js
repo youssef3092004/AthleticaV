@@ -14,15 +14,23 @@ import {
 const INTAKE_SELECT = {
   id: true,
   clientId: true,
-  answers: true,
+  answers: {
+    select: {
+      question: true,
+      value: true,
+    },
+  },
   completedAt: true,
   createdAt: true,
   updatedAt: true,
 };
 
 const getCurrentClientId = (access) => {
-  if (!access?.roles?.includes("CLIENT")) {
-    throw new AppError("Client role required", 403);
+  if (
+    !access?.roles?.includes("CLIENT") &&
+    !access?.roles?.includes("DEVELOPER")
+  ) {
+    throw new AppError("Client or Developer role required", 403);
   }
 
   return String(access.userId);
@@ -85,9 +93,10 @@ const normalizeStoredAnswers = (value) => {
   if (Array.isArray(value)) {
     for (const item of value) {
       const questionKey = normalizeClientIntakeQuestionKey(
-        item?.questionKey || item?.key || item?.question || item?.prompt,
+        item?.question || item?.questionKey || item?.key || item?.prompt,
       );
-      const answer = normalizeClientIntakeAnswer(item?.answer);
+      // Handle both 'answer' and 'value' field names
+      const answer = normalizeClientIntakeAnswer(item?.value ?? item?.answer);
 
       if (questionKey && answer !== null) {
         answerMap.set(questionKey, answer);
@@ -177,7 +186,11 @@ export const getIntakeQuestionBank = async (req, res, next) => {
 export const upsertClientIntakeAnswers = async (req, res, next) => {
   try {
     const access = await getUserAccessContext(req);
-    ensureHasAnyRole(access, ["CLIENT"], "Forbidden: client role required");
+    ensureHasAnyRole(
+      access,
+      ["CLIENT", "DEVELOPER"],
+      "Forbidden: client & dev role required",
+    );
 
     const clientId = getCurrentClientId(access);
     await ensureClientExists(clientId);
@@ -189,51 +202,86 @@ export const upsertClientIntakeAnswers = async (req, res, next) => {
       throw new AppError("No valid answers found", 400);
     }
 
+    // Convert directly (no merge, no extra logic)
+    const answerRecords = Array.from(parsedAnswers.entries()).map(
+      ([question, value]) => ({
+        question,
+        value: String(value),
+      }),
+    );
+
     const existing = await prisma.clientIntake.findUnique({
       where: { clientId },
-      select: INTAKE_SELECT,
+      select: { id: true, completedAt: true },
     });
 
-    const mergedAnswers = new Map(normalizeStoredAnswers(existing?.answers));
+    // Build status based ONLY on incoming answers
+    const status = buildClientIntakeStatus(parsedAnswers);
 
-    for (const [questionKey, answer] of parsedAnswers.entries()) {
-      mergedAnswers.set(questionKey, answer);
-    }
-
-    const status = buildClientIntakeStatus(mergedAnswers);
     const completedAt = status.isComplete
       ? existing?.completedAt || new Date()
-      : existing?.completedAt || null;
+      : null;
 
-    const saved = await prisma.clientIntake.upsert({
-      where: { clientId },
-      create: {
-        clientId,
-        answers: Object.fromEntries(mergedAnswers.entries()),
-        completedAt,
-      },
-      update: {
-        answers: Object.fromEntries(mergedAnswers.entries()),
-        completedAt,
-      },
-      select: INTAKE_SELECT,
+    const saved = await prisma.$transaction(async (tx) => {
+      let intake;
+
+      if (existing) {
+        // 🔥 wipe old answers (fast with index)
+        await tx.intakeAnswer.deleteMany({
+          where: { intakeId: existing.id },
+        });
+
+        intake = await tx.clientIntake.update({
+          where: { clientId },
+          data: { completedAt },
+          select: {
+            id: true,
+            clientId: true,
+            completedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+      } else {
+        intake = await tx.clientIntake.create({
+          data: {
+            clientId,
+            completedAt,
+          },
+          select: {
+            id: true,
+            clientId: true,
+            completedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+      }
+
+      // 🚀 ONE query instead of 25+
+      await tx.intakeAnswer.createMany({
+        data: answerRecords.map((record) => ({
+          intakeId: intake.id,
+          question: record.question,
+          value: record.value,
+        })),
+      });
+
+      // single fetch (needed if you want full structured response)
+      return tx.clientIntake.findUnique({
+        where: { clientId },
+        select: INTAKE_SELECT,
+      });
     });
 
     return res.status(200).json({
       success: true,
-      data: buildIntakeResponse(saved),
-      meta: {
-        received: parsedAnswers.size,
-        stored: mergedAnswers.size,
-        isComplete: status.isComplete,
-        missingRequiredQuestionKeys: status.missingRequiredQuestionKeys,
-      },
+      message: "Answers updated successfully",
     });
   } catch (error) {
     return next(error);
   }
 };
-
 export const getMyClientIntakeStatus = async (req, res, next) => {
   try {
     const access = await getUserAccessContext(req);
@@ -351,20 +399,29 @@ export const getClientIntakeAnswersByTrainerId = async (req, res, next) => {
 export const getClientIntakeAnswersByClientId = async (req, res, next) => {
   try {
     const access = await getUserAccessContext(req);
-    ensureHasAnyRole(access, ["TRAINER", "CLIENT", "SUPPORT"], "Forbidden");
+
+    ensureHasAnyRole(
+      access,
+      ["TRAINER", "CLIENT", "SUPPORT", "DEVELOPER"],
+      "Forbidden",
+    );
 
     const { clientId } = req.params;
+
     if (!clientId) {
       return next(new AppError("clientId is required", 400));
     }
 
+    // 🔒 Access control
     if (!access.isPrivileged) {
       const isClientOwner =
         access.roles.includes("CLIENT") &&
         String(access.userId) === String(clientId);
-      const isTrainer = access.roles.includes("TRAINER");
 
-      if (!isClientOwner && !isTrainer) {
+      const isTrainer = access.roles.includes("TRAINER");
+      const isDeveloper = access.roles.includes("DEVELOPER");
+
+      if (!isClientOwner && !isTrainer && !isDeveloper) {
         return next(new AppError("Forbidden", 403));
       }
 
@@ -373,14 +430,54 @@ export const getClientIntakeAnswersByClientId = async (req, res, next) => {
       }
     }
 
+    // 📦 Fetch from DB
     const intake = await prisma.clientIntake.findUnique({
       where: { clientId: String(clientId) },
-      select: INTAKE_SELECT,
+      select: {
+        clientId: true,
+        answers: true,
+        completedAt: true,
+      },
     });
 
+    // ❗ No intake found
+    if (!intake) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          clientId,
+          answers: {},
+          completedAt: null,
+        },
+        meta: {
+          message: "No intake found for this client",
+        },
+      });
+    }
+
+    // ❗ Answers exist but empty
+    if (!intake.answers || Object.keys(intake.answers).length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          clientId: intake.clientId,
+          answers: {},
+          completedAt: intake.completedAt,
+        },
+        meta: {
+          message: "Intake exists but no answers stored",
+        },
+      });
+    }
+
+    // ✅ Normal case — return answers ONLY
     return res.status(200).json({
       success: true,
-      data: buildIntakeResponse(intake),
+      data: {
+        clientId: intake.clientId,
+        answers: intake.answers,
+        completedAt: intake.completedAt,
+      },
     });
   } catch (error) {
     return next(error);

@@ -12,6 +12,15 @@ const DEFAULT_PLANS = [
 ];
 
 const main = async () => {
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Plans seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   for (const plan of DEFAULT_PLANS) {
     await prisma.plan.upsert({
       where: {

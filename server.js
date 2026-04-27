@@ -181,7 +181,9 @@ import activityLogRoutes from "./routes/activityLog.js";
 import quotationRoutes from "./routes/quotation.js";
 import trainerQuestionRoutes from "./routes/trainerQuestion.js";
 import checkInRoutes from "./routes/checkIn.js";
-import paymentRoutes from "./payments/paymob.routes.js";
+import nutritionRoutes from "./routes/nutrition.js";
+import streakRoutes from "./routes/streak.js";
+// import paymentRoutes from "./payments/paymob.routes.js";
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
@@ -222,7 +224,9 @@ app.use("/api/v1/activity-logs", activityLogRoutes);
 app.use("/api/v1/quotations", quotationRoutes);
 app.use("/api/v1/trainer-questions", trainerQuestionRoutes);
 app.use("/api/v1/check-ins", checkInRoutes);
-app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/nutrition", nutritionRoutes);
+app.use("/api/v1/streaks", streakRoutes);
+// app.use("/api/v1/payments", paymentRoutes);
 
 // Error Handling Middleware
 app.use(errorHandler);

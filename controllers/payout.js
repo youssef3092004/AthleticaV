@@ -63,12 +63,14 @@ export const requestPayout = async (req, res, next) => {
     const amount = parseAmount(req.body.amount);
 
     const result = await prisma.$transaction(async (tx) => {
+      // Ensure wallet exists
       const wallet = await tx.trainerWallet.upsert({
         where: { trainerId },
         update: {},
         create: {
           trainerId,
           balance: "0.00",
+          totalEarned: "0.00",
         },
         select: {
           trainerId: true,
@@ -76,16 +78,21 @@ export const requestPayout = async (req, res, next) => {
         },
       });
 
-      if (Number(wallet.balance) < amount) {
+      const currentBalance = Number(wallet.balance);
+      if (currentBalance < amount) {
         throw new AppError("Insufficient wallet balance", 400);
       }
 
-      const nextBalance = Number((Number(wallet.balance) - amount).toFixed(2));
-
-      await tx.trainerWallet.update({
+      // Use atomic decrement to prevent race conditions
+      const updated = await tx.trainerWallet.update({
         where: { trainerId },
         data: {
-          balance: nextBalance.toFixed(2),
+          balance: {
+            decrement: amount,
+          },
+        },
+        select: {
+          balance: true,
         },
       });
 
@@ -105,9 +112,9 @@ export const requestPayout = async (req, res, next) => {
           metadata: {
             payoutId: payout.id,
             trainerId,
-            amount,
-            previousBalance: wallet.balance,
-            nextBalance,
+            amount: amount.toFixed(2),
+            previousBalance: currentBalance.toFixed(2),
+            newBalance: Number(updated.balance).toFixed(2),
           },
         },
       });

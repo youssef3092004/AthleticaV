@@ -398,6 +398,15 @@ const createMealPlanFromTemplate = async ({
 };
 
 const main = async () => {
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Meal Plan from Template seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const trainer = await pickTrainer();
   const clientProfile = await pickClientProfileForTrainer(trainer.id);
   const template = await resolveTemplate(trainer.id);

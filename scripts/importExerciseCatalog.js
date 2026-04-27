@@ -122,6 +122,15 @@ const importCatalog = async (jsonPath, trainerIdOverride) => {
 };
 
 const main = async () => {
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Exercise catalog import");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const defaultCatalogPath = "./01_athletica_mvp_database_v2.json";
   const filePathArg = process.argv[2] || defaultCatalogPath;
 

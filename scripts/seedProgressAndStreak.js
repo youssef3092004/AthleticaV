@@ -510,6 +510,16 @@ const seedClientProgress = async ({
 
 const main = async () => {
   ensureDatabaseEnv();
+
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Progress and Streak seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const config = parseConfig();
 
   const trainer = await upsertUser(TRAINER);

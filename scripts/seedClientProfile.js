@@ -9,6 +9,15 @@ import { prisma } from "../configs/db.js";
 
 async function seedClientProfiles() {
   try {
+    // Establish connection before starting operations
+    try {
+      await prisma.$connect();
+      console.log("Database connected for ClientProfile seed");
+    } catch (err) {
+      console.error("Failed to connect to database:", err.message);
+      throw err;
+    }
+
     console.log("Starting ClientProfile seed...");
 
     // First, find the CLIENT role

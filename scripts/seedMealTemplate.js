@@ -114,6 +114,15 @@ const buildDayItems = (portions, dayIndex) => {
 };
 
 const main = async () => {
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Meal Template seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const { trainer, portions } = await ensurePrerequisites();
 
   const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");

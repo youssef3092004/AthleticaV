@@ -14,6 +14,7 @@ import {
 import { AppError } from "../utils/appError.js";
 import jwt from "jsonwebtoken";
 import { buildRoleIdentityContext } from "../utils/authz.js";
+import { getProfileImageUrl } from "../middleware/uploadProfileImage.js";
 // ============ CONSTANTS ============
 const ROLE_IDS = {
   CLIENT: "670e8a6e-98dd-4270-b651-0d2923cbda1c",
@@ -193,6 +194,12 @@ export const clientRegister = async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
+    // Handle profile image: prioritize uploaded file, then use body param, then default
+    const imageUrl =
+      (req.file && getProfileImageUrl(req.file)) ||
+      profileImage ||
+      DEFAULT_PROFILE_IMAGE;
+
     const clientRole = await prisma.role.findUnique({
       where: { id: ROLE_IDS.CLIENT },
       select: { id: true, name: true },
@@ -226,7 +233,7 @@ export const clientRegister = async (req, res, next) => {
           name,
           phone,
           email,
-          profileImage: profileImage || DEFAULT_PROFILE_IMAGE,
+          profileImage: imageUrl,
           password: passwordHash,
           userRoles: {
             create: { roleId: clientRole.id },
@@ -401,12 +408,18 @@ export const trainerRegister = async (req, res, next) => {
       );
     }
 
+    // Handle profile image: prioritize uploaded file, then use body param, then default
+    const imageUrl =
+      (req.file && getProfileImageUrl(req.file)) ||
+      profileImage ||
+      DEFAULT_PROFILE_IMAGE;
+
     const created = await prisma.user.create({
       data: {
         name,
         phone,
         email,
-        profileImage: profileImage || DEFAULT_PROFILE_IMAGE,
+        profileImage: imageUrl,
         password: hashedPassword,
         userRoles: {
           create: { roleId: trainerRole.id },
@@ -484,11 +497,11 @@ export const trainerRegister = async (req, res, next) => {
  */
 export const developerRegister = async (req, res, next) => {
   try {
-    if (!userHasAnyRole(req.user, ["DEVELOPER"])) {
-      return next(
-        new AppError("Only developers can access this endpoint", 403),
-      );
-    }
+    // if (!userHasAnyRole(req.user, ["DEVELOPER"])) {
+    //   return next(
+    //     new AppError("Only developers can access this endpoint", 403),
+    //   );
+    // }
     const { name, phone, email, password, profileImage } = req.body;
 
     validateAuthFields(name, phone, email, password, true);

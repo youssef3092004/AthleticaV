@@ -590,6 +590,15 @@ const portionKeyOf = (foodId, label) =>
   `${String(foodId)}:${String(label).trim().toLowerCase()}`;
 
 const seedFoodCatalog = async () => {
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Food catalog seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   let categoryCount = 0;
   let foodCreatedCount = 0;
   let foodUpdatedCount = 0;

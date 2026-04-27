@@ -133,6 +133,15 @@ const createUniqueMessage = async ({
 const main = async () => {
   ensureDatabaseEnv();
 
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Progress Reports seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const maxClients = Number(
     process.env.SEED_REPORTS_CLIENTS || DEFAULTS.maxClients,
   );

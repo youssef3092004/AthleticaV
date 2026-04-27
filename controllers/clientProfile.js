@@ -66,7 +66,7 @@ export const upsertClientProfile = async (req, res, next) => {
     const { userId: clientId } = req.params;
 
     if (!clientId) {
-      return next(new AppError("User ID is required", 400));
+      throw new AppError("User ID is required", 400);
     }
 
     const requesterId = getUserId(req);
@@ -74,54 +74,57 @@ export const upsertClientProfile = async (req, res, next) => {
     const isOwnProfile = String(requesterId) === String(clientId);
 
     if (!isAdmin && !isOwnProfile) {
-      return next(
-        new AppError("Forbidden: You can only edit your own profile", 403),
-      );
+      throw new AppError("Forbidden: You can only edit your own profile", 403);
     }
 
-    // Validate user exists
-    const user = await prisma.user.findUnique({
-      where: { id: clientId },
-      select: { id: true },
-    });
+    const profile = await prisma.$transaction(async (tx) => {
+      // ✅ Ensure user exists
+      const user = await tx.user.findUnique({
+        where: { id: clientId },
+        select: { id: true },
+      });
 
-    if (!user) {
-      return next(new AppError("User not found", 404));
-    }
+      if (!user) {
+        throw new AppError("User not found", 404);
+      }
 
-    // Validate input data
-    const inputData = buildProfileInput(req.body);
+      // ✅ Extract only allowed fields
+      const inputData = buildProfileInput(req.body);
 
-    const validation = validateClientProfileData(inputData);
-    if (!validation.valid) {
-      return next(
-        new AppError(
-          `Validation failed: ${JSON.stringify(validation.errors)}`,
-          400,
-        ),
-      );
-    }
+      // ✅ Validate
+      const validation = validateClientProfileData(inputData);
+      if (!validation.valid) {
+        throw new AppError("Validation failed", 400, validation.errors);
+      }
 
-    // Normalize and sanitize
-    const normalized = normalizeClientProfileData(inputData);
+      // ✅ Normalize
+      const normalized = normalizeClientProfileData(inputData);
 
-    // Upsert profile
-    const profile = await prisma.clientProfile.upsert({
-      where: { clientId },
-      update: normalized,
-      create: {
-        clientId,
-        ...normalized,
-      },
+      // ✅ Whitelist fields (VERY IMPORTANT)
+      const safeData = {
+        age: normalized.age,
+        heightCm: normalized.heightCm,
+        weightKg: normalized.weightKg,
+        fitnessGoal: normalized.fitnessGoal,
+        // add more fields explicitly here
+      };
+
+      return tx.clientProfile.upsert({
+        where: { clientId },
+        update: safeData,
+        create: {
+          clientId,
+          ...safeData,
+        },
+      });
     });
 
     invalidateCacheByTags(buildResourceTags("client_profiles", clientId));
 
     return res.status(200).json({
-      status: "success",
+      success: true,
       message: "Profile saved successfully",
       data: profile,
-      source: "database",
     });
   } catch (error) {
     return next(error);

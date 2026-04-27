@@ -725,3 +725,111 @@ export const deleteAllWorkouts = async (req, res, next) => {
     return next(error);
   }
 };
+
+// New endpoints for mobile app
+
+export const getWorkoutWeekSummary = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const workout = await prisma.workout.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        clientId: true,
+        days: {
+          select: {
+            id: true,
+            dayIndex: true,
+            date: true,
+            title: true,
+          },
+          orderBy: { dayIndex: "asc" },
+        },
+      },
+    });
+
+    if (!workout) {
+      return next(new AppError("Workout not found", 404));
+    }
+
+    // Get completion status for each day
+    const daysWithStatus = await Promise.all(
+      workout.days.map(async (day) => {
+        const completion = await prisma.workoutCompletion.findFirst({
+          where: {
+            userId: workout.clientId,
+            workoutDayId: day.id,
+          },
+          select: { id: true, completedAt: true },
+        });
+
+        return {
+          dayIndex: day.dayIndex,
+          date: day.date.toISOString().split("T")[0],
+          title: day.title || `Day ${day.dayIndex}`,
+          status: completion ? "COMPLETED" : "SCHEDULED",
+          completedAt: completion?.completedAt || null,
+        };
+      }),
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        workoutId: workout.id,
+        week: daysWithStatus,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+export const updateWorkoutDayTrainerNote = async (req, res, next) => {
+  try {
+    const { id: workoutId, dayId } = req.params;
+    const { trainerNote } = req.body;
+
+    // Verify workout exists
+    const workout = await prisma.workout.findUnique({
+      where: { id: workoutId },
+      select: { trainerId: true },
+    });
+
+    if (!workout) {
+      return next(new AppError("Workout not found", 404));
+    }
+
+    // Only trainer can update their own notes
+    const userId = getUserId(req);
+    if (workout.trainerId !== userId && !canManageAnyWorkout(req.user)) {
+      return next(
+        new AppError("Forbidden: Only assigned trainer can update notes", 403),
+      );
+    }
+
+    // Update the workout day
+    const updatedDay = await prisma.workoutDay.update({
+      where: { id: dayId },
+      data: {
+        trainerNote: trainerNote || null,
+      },
+      select: {
+        id: true,
+        dayIndex: true,
+        date: true,
+        title: true,
+        trainerNote: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: updatedDay,
+      message: "Trainer note updated successfully",
+    });
+  } catch (error) {
+    return next(error);
+  }
+};

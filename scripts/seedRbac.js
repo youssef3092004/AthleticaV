@@ -1,11 +1,7 @@
 import "dotenv/config";
 import { prisma } from "../configs/db.js";
 import process from "process";
-import {
-  RBAC_PERMISSIONS,
-  RBAC_ROLES,
-  ROLE_PERMISSION_MAP,
-} from "../configs/rbac.js";
+import { RBAC_PERMISSIONS, ROLE_PERMISSION_MAP } from "../configs/rbac.js";
 
 const ROLE_SEED_DATA = [
   { idx: 0, id: "2fafbe3d-6069-43ad-8cc5-6f93170025de", name: "SUPPORT" },
@@ -99,6 +95,15 @@ const main = async () => {
     throw new Error(
       "Database URL is missing. Set one of PRISMA_URL, DATABASE_URL, POSTGRES_PRISMA_URL, POSTGRES_URL_NON_POOLING, or POSTGRES_URL in .env before running seed:rbac",
     );
+  }
+
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for RBAC seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
   }
 
   const roleIdByName = await upsertRoles();

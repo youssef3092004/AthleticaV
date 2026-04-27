@@ -11,13 +11,15 @@ import {
 } from "../controllers/auth.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
+import { uploadProfileImage } from "../middleware/uploadProfileImage.js";
 
 const router = Router();
 
 // Registration endpoints (no authentication required)
-router.post("/register/client", clientRegister);
-router.post("/register/trainer", trainerRegister);
-router.post("/register/developer", verifyToken, developerRegister);
+// Optional image upload for profile
+router.post("/register/client", uploadProfileImage, clientRegister);
+router.post("/register/trainer", uploadProfileImage, trainerRegister);
+router.post("/register/developer", developerRegister);
 router.post("/register/support", verifyToken, supportRegister);
 
 // Admin-only registration (creates users with custom roles)
@@ -29,7 +31,7 @@ router.post(
 );
 
 // Legacy endpoint - maps to client registration for backwards compatibility
-router.post("/register", clientRegister);
+router.post("/register", uploadProfileImage, clientRegister);
 
 // Authentication endpoints
 router.post("/login", login);

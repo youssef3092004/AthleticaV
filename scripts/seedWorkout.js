@@ -159,6 +159,28 @@ const upsertTrainerClientLink = async (trainerId, clientId) => {
   });
 };
 
+const upsertProgram = async (trainerClientId) => {
+  const existing = await prisma.program.findFirst({
+    where: {
+      trainerClientId,
+      startDate: WORKOUT_WINDOW.startDate,
+      endDate: WORKOUT_WINDOW.endDate,
+    },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  return prisma.program.create({
+    data: {
+      trainerClientId,
+      startDate: WORKOUT_WINDOW.startDate,
+      endDate: WORKOUT_WINDOW.endDate,
+    },
+  });
+};
+
 const ensureExercises = async (trainerId) => {
   const byName = new Map();
 
@@ -223,14 +245,11 @@ const upsertWorkoutTemplate = async (trainerId) => {
   });
 };
 
-const upsertWorkout = async (trainerId, clientId, workoutTemplateId) => {
+const upsertWorkout = async (programId, workoutTemplateId) => {
   const existing = await prisma.workout.findFirst({
     where: {
-      trainerId,
-      clientId,
+      programId,
       workoutTemplateId,
-      startDate: WORKOUT_WINDOW.startDate,
-      endDate: WORKOUT_WINDOW.endDate,
     },
   });
 
@@ -240,11 +259,8 @@ const upsertWorkout = async (trainerId, clientId, workoutTemplateId) => {
 
   return prisma.workout.create({
     data: {
-      trainerId,
-      clientId,
+      programId,
       workoutTemplateId,
-      startDate: WORKOUT_WINDOW.startDate,
-      endDate: WORKOUT_WINDOW.endDate,
     },
   });
 };
@@ -304,21 +320,27 @@ const syncWorkoutItems = async (workoutId, workoutDayId, exercisesByName) => {
 const main = async () => {
   ensureDatabaseEnv();
 
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Workout seed");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const trainer = await upsertUser(TRAINER);
   const client = await upsertUser(CLIENT);
 
   await attachRoleIfExists(trainer.id, "TRAINER");
   await attachRoleIfExists(client.id, "CLIENT");
 
-  await upsertTrainerClientLink(trainer.id, client.id);
+  const trainerClient = await upsertTrainerClientLink(trainer.id, client.id);
 
   const exercisesByName = await ensureExercises(trainer.id);
   const workoutTemplate = await upsertWorkoutTemplate(trainer.id);
-  const workout = await upsertWorkout(
-    trainer.id,
-    client.id,
-    workoutTemplate.id,
-  );
+  const program = await upsertProgram(trainerClient.id);
+  const workout = await upsertWorkout(program.id, workoutTemplate.id);
 
   const workoutDay = await ensureWorkoutDay(
     workout.id,

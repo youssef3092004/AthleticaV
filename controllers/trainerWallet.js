@@ -170,25 +170,35 @@ export const adjustTrainerWalletBalance = async (req, res, next) => {
     const reason = parseOptionalReason(req.body.reason);
 
     const updated = await prisma.$transaction(async (tx) => {
+      // Ensure wallet exists
       const wallet = await tx.trainerWallet.upsert({
         where: { trainerId },
         update: {},
-        create: { trainerId, balance: "0.00" },
+        create: { trainerId, balance: "0.00", totalEarned: "0.00" },
         select: {
           trainerId: true,
           balance: true,
+          totalEarned: true,
         },
       });
 
-      const nextBalance = Number((Number(wallet.balance) + delta).toFixed(2));
+      const previousBalance = Number(wallet.balance);
+      const nextBalance = previousBalance + delta;
+
+      // Validate balance won't go negative
       if (nextBalance < 0) {
         throw new AppError("Resulting wallet balance cannot be negative", 400);
       }
 
+      // Use atomic increment to prevent race conditions
       const adjusted = await tx.trainerWallet.update({
         where: { trainerId },
         data: {
-          balance: nextBalance.toFixed(2),
+          balance: {
+            increment: delta,
+          },
+          // Also update totalEarned if adding funds
+          ...(delta > 0 ? { totalEarned: { increment: delta } } : {}),
         },
         select: WALLET_SELECT,
       });
@@ -196,13 +206,13 @@ export const adjustTrainerWalletBalance = async (req, res, next) => {
       await tx.activityLog.create({
         data: {
           userId: access.userId,
-          action: "TRAINER_WALLET_ADJUSTED",
+          action: "USER_WALLET_ADJUSTED",
           metadata: {
             trainerId,
             delta,
             reason,
-            previousBalance: wallet.balance,
-            nextBalance,
+            previousBalance: previousBalance.toFixed(2),
+            nextBalance: nextBalance.toFixed(2),
           },
         },
       });

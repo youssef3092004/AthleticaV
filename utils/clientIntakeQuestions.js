@@ -5,71 +5,74 @@ const buildSection = (key, title, description, questions) => ({
   questions,
 });
 
-const BASIC_INFORMATION = buildSection(
-  "basic_information",
-  "Basic Information",
-  "Core profile details needed to personalize the plan.",
-  [
-    { key: "AGE", prompt: "What is your age?", type: "number", required: true },
-    {
-      key: "GENDER",
-      prompt: "What is your gender?",
-      type: "select",
-      options: ["Male", "Female", "Non-binary", "Prefer not to say"],
-      required: true,
-    },
-    {
-      key: "HEIGHT_CM",
-      prompt: "What is your height? (cm)",
-      type: "number",
-      required: true,
-    },
-    {
-      key: "WEIGHT_KG",
-      prompt: "What is your weight? (kg)",
-      type: "number",
-      required: true,
-    },
-  ],
-);
-
-const GOALS = buildSection(
-  "goals",
-  "Goals",
-  "Define what the client wants and why it matters.",
+// Screen 1: Welcome Q&A - Lifestyle & Preferences
+const LIFESTYLE = buildSection(
+  "lifestyle",
+  "Welcome Q&A",
+  "Tell us about your lifestyle and preferences",
   [
     {
-      key: "PRIMARY_FITNESS_GOAL",
-      prompt: "What is your primary fitness goal?",
+      key: "SLEEP_HOURS",
+      prompt: "How many hours do you sleep per night?",
       type: "select",
       options: [
-        "Lose weight",
-        "Build muscle",
-        "Maintain",
-        "Improve endurance",
-        "General fitness",
+        "Less than 5 hours",
+        "5-6 hours",
+        "6-7 hours",
+        "7-8 hours",
+        "More than 8 hours",
       ],
       required: true,
     },
     {
-      key: "GOAL_IMPORTANCE",
-      prompt: "Why is this goal important to you?",
-      type: "textarea",
+      key: "OCCUPATION",
+      prompt: "What is your occupation?",
+      type: "select",
+      options: [
+        "Sedentary (desk job)",
+        "Lightly active",
+        "Moderately active",
+        "Very active",
+        "Athlete",
+      ],
       required: true,
     },
     {
-      key: "TARGET_TIMELINE",
-      prompt: "What is your target timeline? (e.g. 3 months, 6 months)",
-      type: "text",
+      key: "STRESS_LEVEL",
+      prompt: "How would you rate your stress level?",
+      type: "select",
+      options: ["Very low", "Low", "Medium", "High", "Very high"],
+      required: true,
+    },
+    {
+      key: "SMOKE_DRINK_ALCOHOL",
+      prompt: "Do you smoke or drink alcohol?",
+      type: "select",
+      options: ["No", "Occasionally", "Regularly"],
+      required: true,
+    },
+    {
+      key: "COMMITMENT_DAYS_PER_WEEK",
+      prompt: "How many days per week can you commit to training?",
+      type: "select",
+      options: ["1-2 days", "3-4 days", "5-6 days", "7 days"],
+      required: true,
+    },
+    {
+      key: "PREFERRED_WORKOUT_LOCATION",
+      prompt: "Do you prefer training at the gym or at home?",
+      type: "select",
+      options: ["Gym", "Home", "Both"],
       required: true,
     },
   ],
 );
 
-const EXPERIENCE = buildSection(
-  "experience",
-  "Experience Level",
-  "Understand how familiar the client is with training.",
+// Screen 2: Welcome Q&A - Fitness & Nutrition
+const FITNESS_NUTRITION = buildSection(
+  "fitness_nutrition",
+  "Welcome Q&A",
+  "Tell us about your fitness level and nutrition habits",
   [
     {
       key: "FITNESS_LEVEL",
@@ -79,106 +82,165 @@ const EXPERIENCE = buildSection(
       required: true,
     },
     {
-      key: "PREVIOUS_PROGRAM_EXPERIENCE",
-      prompt: "Do you have previous experience with training programs?",
+      key: "DAILY_DIET_DESCRIPTION",
+      prompt: "What does your daily diet look like?",
       type: "select",
-      options: ["Yes", "No"],
+      options: [
+        "Healthy and balanced",
+        "Need improvement",
+        "Inconsistent",
+        "Mostly junk food",
+      ],
       required: true,
     },
     {
-      key: "PREVIOUS_TRAINER_EXPERIENCE",
-      prompt: "Have you worked with a personal trainer before?",
+      key: "MEALS_PER_DAY",
+      prompt: "How many meals do you eat per day?",
       type: "select",
-      options: ["Yes", "No"],
+      options: ["1-2 meals", "3 meals", "4 meals", "5+ meals"],
+      required: true,
+    },
+    {
+      key: "WATER_INTAKE_LITERS",
+      prompt: "How much water do you drink daily?",
+      type: "select",
+      options: ["Less than 1L", "1-2L", "2-3L", "3-4L", "More than 4L"],
+      required: true,
+    },
+    {
+      key: "CURRENT_EXERCISE_TYPE",
+      prompt: "What type of exercise do you do?",
+      type: "select",
+      options: [
+        "Gym / weight training",
+        "Cardio / running",
+        "Sports",
+        "Home workouts",
+        "None",
+      ],
+      required: true,
+    },
+    {
+      key: "FOOD_ALLERGIES_RESTRICTIONS",
+      prompt: "Do you have any food allergies or restrictions?",
+      type: "select",
+      options: [
+        "No allergies",
+        "Yes (diet preference)",
+        "Yes (medical condition)",
+      ],
       required: true,
     },
   ],
 );
 
-const MEDICAL_SAFETY = buildSection(
-  "medical_safety",
-  "Medical & Safety",
-  "Capture anything that could affect training safety.",
+// Screen 4 & 5: Goals & Medical Information
+const GOALS = buildSection(
+  "goals",
+  "Goals & Medical Information",
+  "Define your fitness goals and health information",
   [
+    {
+      key: "HEIGHT_CM",
+      prompt: "Type Your Height",
+      type: "number",
+      required: true,
+    },
+    {
+      key: "WEIGHT_KG",
+      prompt: "Type Your Weight",
+      type: "number",
+      required: true,
+    },
+    {
+      key: "PRIMARY_FITNESS_GOAL",
+      prompt: "What are your primary fitness goals?",
+      type: "select",
+      options: [
+        "Lose weight",
+        "Build muscle",
+        "Improve endurance",
+        "Increase strength",
+        "General fitness",
+        "Improve mobility",
+      ],
+      required: true,
+    },
+    {
+      key: "PREVIOUS_PROGRAM_EXPERIENCE",
+      prompt:
+        "Do you have any previous experience with personal training or fitness programs?",
+      type: "select",
+      options: ["Yes", "No"],
+      required: true,
+    },
+    {
+      key: "GOAL_IMPORTANCE",
+      prompt: "Why is this goal important to you?",
+      type: "textarea",
+      required: true,
+    },
     {
       key: "MEDICAL_CONDITIONS",
       prompt: "Do you have any medical conditions?",
-      type: "textarea",
+      type: "select",
+      options: ["No medical conditions", "Yes", "Prefer not to say"],
       required: true,
     },
     {
       key: "CURRENT_MEDICATIONS",
       prompt: "Are you currently taking any medications?",
-      type: "textarea",
+      type: "select",
+      options: ["No medications", "Yes", "Prefer not to say"],
       required: true,
     },
     {
+      key: "EXPECTED_CHALLENGES",
+      prompt: "What challenges do you expect to face?",
+      type: "multiselect",
+      options: [
+        "Lack of time",
+        "Motivation",
+        "Injuries",
+        "Diet consistency",
+        "Work schedule",
+      ],
+      required: true,
+    },
+  ],
+);
+
+// Screen 3: Welcome Q&A - Health & Activity
+const HEALTH_ACTIVITY = buildSection(
+  "health_activity",
+  "Welcome Q&A",
+  "Tell us about your health and current activity level",
+  [
+    {
       key: "PAST_INJURIES",
       prompt: "Have you had any past injuries?",
-      type: "textarea",
+      type: "select",
+      options: ["No injuries", "Minor injuries", "Significant injuries"],
       required: true,
     },
     {
       key: "DOCTOR_EXERCISE_RESTRICTION",
       prompt: "Has a doctor ever advised you not to exercise?",
       type: "select",
-      options: ["Yes", "No"],
+      options: ["No", "Yes"],
       required: true,
     },
-  ],
-);
-
-const LIFESTYLE = buildSection(
-  "lifestyle",
-  "Lifestyle & Constraints",
-  "Measure practical blockers that affect adherence.",
-  [
-    {
-      key: "EXPECTED_CHALLENGES",
-      prompt: "What challenges do you expect to face?",
-      type: "multiselect",
-      options: ["Lack of time", "Motivation", "Injuries", "Diet consistency"],
-      required: true,
-    },
-    {
-      key: "SLEEP_HOURS",
-      prompt: "How many hours do you sleep per night?",
-      type: "number",
-      required: true,
-    },
-    {
-      key: "STRESS_LEVEL",
-      prompt: "What is your stress level? (Low / Medium / High)",
-      type: "select",
-      options: ["Low", "Medium", "High"],
-      required: true,
-    },
-  ],
-);
-
-const ACTIVITY = buildSection(
-  "activity",
-  "Activity Level",
-  "Understand the client’s current training behavior.",
-  [
     {
       key: "CURRENTLY_EXERCISING",
       prompt: "Are you currently exercising?",
       type: "select",
-      options: ["Yes", "No"],
+      options: ["Not exercising", "Exercising lightly", "Exercising regularly"],
       required: true,
     },
     {
       key: "TRAINING_DAYS_PER_WEEK",
       prompt: "How many days per week do you train?",
       type: "number",
-      required: true,
-    },
-    {
-      key: "CURRENT_EXERCISE_TYPE",
-      prompt: "What type of exercise do you currently do?",
-      type: "multiselect",
-      options: ["Gym", "Home workouts", "Running", "Sports"],
       required: true,
     },
     {
@@ -190,89 +252,11 @@ const ACTIVITY = buildSection(
   ],
 );
 
-const NUTRITION = buildSection(
-  "nutrition",
-  "Nutrition",
-  "Capture the client’s current nutrition habits.",
-  [
-    {
-      key: "DAILY_DIET_DESCRIPTION",
-      prompt: "What does your daily diet look like?",
-      type: "textarea",
-      required: true,
-    },
-    {
-      key: "MEALS_PER_DAY",
-      prompt: "How many meals do you eat per day?",
-      type: "number",
-      required: true,
-    },
-    {
-      key: "WATER_INTAKE_LITERS",
-      prompt: "How much water do you drink daily? (liters)",
-      type: "number",
-      required: true,
-    },
-    {
-      key: "FOOD_ALLERGIES_RESTRICTIONS",
-      prompt: "Do you have any food allergies or dietary restrictions?",
-      type: "textarea",
-      required: true,
-    },
-    {
-      key: "SPECIFIC_DIET",
-      prompt: "Do you follow a specific diet? None / Keto / Vegan / etc.",
-      type: "select",
-      options: ["None", "Keto", "Vegan", "Vegetarian", "Other"],
-      required: true,
-    },
-  ],
-);
-
-const COMMITMENT = buildSection(
-  "commitment",
-  "Commitment & Preferences",
-  "Capture what is realistic and what the client prefers.",
-  [
-    {
-      key: "REALISTIC_TRAINING_DAYS",
-      prompt: "How many days per week can you realistically train?",
-      type: "number",
-      required: true,
-    },
-    {
-      key: "PREFERRED_WORKOUT_LOCATION",
-      prompt: "Preferred workout location: Gym / Home / Outdoor",
-      type: "select",
-      options: ["Gym", "Home", "Outdoor"],
-      required: true,
-    },
-    {
-      key: "PREFERRED_WORKOUT_DURATION",
-      prompt: "Preferred workout duration: 30 / 45 / 60+ minutes",
-      type: "select",
-      options: ["30", "45", "60+"],
-      required: true,
-    },
-    {
-      key: "PREFERRED_TRAINING_TYPE",
-      prompt: "What type of training do you prefer? Strength / Cardio / Mixed",
-      type: "select",
-      options: ["Strength", "Cardio", "Mixed"],
-      required: true,
-    },
-  ],
-);
-
 export const CLIENT_INTAKE_QUESTION_GROUPS = [
-  BASIC_INFORMATION,
-  GOALS,
-  EXPERIENCE,
-  MEDICAL_SAFETY,
   LIFESTYLE,
-  ACTIVITY,
-  NUTRITION,
-  COMMITMENT,
+  FITNESS_NUTRITION,
+  HEALTH_ACTIVITY,
+  GOALS,
 ];
 
 export const CLIENT_INTAKE_QUESTIONS = CLIENT_INTAKE_QUESTION_GROUPS.flatMap(

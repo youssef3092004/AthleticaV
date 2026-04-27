@@ -6,6 +6,8 @@ import {
   getAllWorkouts,
   getWorkoutById,
   updateWorkoutByIdPatch,
+  getWorkoutWeekSummary,
+  updateWorkoutDayTrainerNote,
 } from "../controllers/workout.js";
 import { verifyToken } from "../middleware/auth.js";
 import { checkPermission } from "../middleware/checkPermission.js";
@@ -66,6 +68,21 @@ router.delete(
   verifyToken,
   checkPermission("DELETE-WORKOUTS"),
   deleteAllWorkouts,
+);
+
+// New endpoints for mobile app
+router.get(
+  "/:id/week-summary",
+  verifyToken,
+  checkPermission("VIEW-WORKOUTS"),
+  getWorkoutWeekSummary,
+);
+
+router.patch(
+  "/:id/days/:dayId",
+  verifyToken,
+  checkPermission("UPDATE-WORKOUTS"),
+  updateWorkoutDayTrainerNote,
 );
 
 export default router;

@@ -170,6 +170,15 @@ const upsertFoods = async (foods, sourceCategoryIdToDbCategoryId) => {
 };
 
 const main = async () => {
+  // Establish connection before starting operations
+  try {
+    await prisma.$connect();
+    console.log("Database connected for Food catalog import");
+  } catch (err) {
+    console.error("Failed to connect to database:", err.message);
+    throw err;
+  }
+
   const defaultFilePath = "./prisma_seed_data.json";
   const filePath = process.argv[2] || defaultFilePath;
 

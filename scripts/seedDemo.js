@@ -679,6 +679,16 @@ const ensureWowMealData = async (trainerId, clientId) => {
 const main = async () => {
   try {
     ensureDatabaseEnv();
+
+    // Establish connection before starting operations
+    try {
+      await prisma.$connect();
+      console.log("Database connected for Demo seed");
+    } catch (err) {
+      console.error("Failed to connect to database:", err.message);
+      throw err;
+    }
+
     console.log("\n=== Seeding Demo Data ===\n");
 
     // 1. Create Ahmed (trainer)
